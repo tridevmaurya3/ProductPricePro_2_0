@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="22dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="18dp">
+
+    <ImageView
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_customer_icon"
+        android:contentDescription="Share quotation"
+        android:padding="13dp"
+        android:src="@drawable/ic_share"
+        app:tint="#0F6CBD" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:gravity="center"
+        android:text="Share Quotation"
+        android:textColor="#242424"
+        android:textSize="21sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:gravity="center"
+        android:text="Choose the last saved quotation file you want to share."
+        android:textColor="#616161"
+        android:textSize="14sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_share_last_pdf"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="54dp"
+        android:layout_marginTop="22dp"
+        android:text="Share Last PDF"
+        android:textAllCaps="false"
+        android:textColor="#0F6CBD"
+        app:cornerRadius="10dp"
+        app:icon="@drawable/ic_pdf"
+        app:iconGravity="textStart"
+        app:iconTint="#0F6CBD"
+        app:strokeColor="#0F6CBD" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_share_last_excel"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="54dp"
+        android:layout_marginTop="10dp"
+        android:text="Share Last Excel"
+        android:textAllCaps="false"
+        android:textColor="#107C10"
+        app:cornerRadius="10dp"
+        app:icon="@drawable/ic_excel"
+        app:iconGravity="textStart"
+        app:iconTint="#107C10"
+        app:strokeColor="#107C10" />
+
+    <TextView
+        android:id="@+id/text_share_file_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:gravity="center"
+        android:text="Save a PDF or Excel quotation first."
+        android:textColor="#616161"
+        android:textSize="12sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_close_share_dialog"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="10dp"
+        android:text="Close"
+        android:textAllCaps="false"
+        android:textColor="#424242" />
+
+</LinearLayout>
