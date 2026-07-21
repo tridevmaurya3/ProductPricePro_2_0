@@ -3,12 +3,14 @@ package com.example.productprice;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -17,16 +19,22 @@ import com.example.productprice.adapter.AttractiveDropdownAdapter;
 import com.example.productprice.adapter.CartAdapter;
 import com.example.productprice.data.CustomerDbHelper;
 import com.example.productprice.data.ProductDbHelper;
+import com.example.productprice.data.QuotationDbHelper;
 import com.example.productprice.model.CartItem;
 import com.example.productprice.model.Customer;
 import com.example.productprice.model.Product;
+import com.example.productprice.model.SavedQuotation;
+import com.example.productprice.model.SavedQuotationItem;
 import com.example.productprice.util.ExportUtils;
 import com.example.productprice.util.QuotationShareHelper;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
+import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
+import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -37,12 +45,14 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_ORDER_XLSX = 301;
     private static final int REQUEST_ORDER_PDF = 302;
+    private static final int REQUEST_SAVED_QUOTATION = 303;
 
     private static final String ORDER_TYPE_SELF = "Self";
     private static final String ORDER_TYPE_CUSTOMER = "Customer";
 
     private ProductDbHelper productDb;
     private CustomerDbHelper customerDb;
+    private QuotationDbHelper quotationDb;
 
     private MaterialAutoCompleteTextView orderTypeDropdown;
     private MaterialAutoCompleteTextView customerDropdown;
@@ -87,11 +97,16 @@ public class MainActivity extends AppCompatActivity {
             new ArrayList<>();
 
     private CartAdapter cartAdapter;
+
     private Product selectedProduct;
     private Customer selectedCustomer;
 
     private String selectedOrderType =
             ORDER_TYPE_SELF;
+
+    private long currentSavedQuotationId = 0L;
+    private String currentSavedQuotationTitle = "";
+    private String currentSavedQuotationNotes = "";
 
     @Override
     protected void onCreate(
@@ -110,6 +125,9 @@ public class MainActivity extends AppCompatActivity {
 
         customerDb =
                 CustomerDbHelper.getInstance(this);
+
+        quotationDb =
+                QuotationDbHelper.getInstance(this);
 
         bindViews();
         setupStaticDropdowns();
@@ -131,7 +149,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void bindViews() {
         MaterialToolbar toolbar =
-                findViewById(R.id.toolbar);
+                findViewById(
+                        R.id.toolbar
+                );
 
         setSupportActionBar(toolbar);
 
@@ -320,8 +340,9 @@ public class MainActivity extends AppCompatActivity {
                                 false
                         );
 
-                        customerDropdownLayout
-                                .setError(null);
+                        customerDropdownLayout.setError(
+                                null
+                        );
                     }
 
                     updateCustomerSelectionVisibility();
@@ -350,6 +371,7 @@ public class MainActivity extends AppCompatActivity {
                 (view, hasFocus) -> {
                     if (hasFocus
                             && !activeCustomers.isEmpty()) {
+
                         customerDropdown.showDropDown();
                     }
                 }
@@ -372,8 +394,9 @@ public class MainActivity extends AppCompatActivity {
                                 false
                         );
 
-                        customerDropdownLayout
-                                .setError(null);
+                        customerDropdownLayout.setError(
+                                null
+                        );
 
                         updateOrderSummary();
                     }
@@ -505,7 +528,9 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    private int dpToPx(int dp) {
+    private int dpToPx(
+            int dp
+    ) {
         float density =
                 getResources()
                         .getDisplayMetrics()
@@ -529,10 +554,9 @@ public class MainActivity extends AppCompatActivity {
                                         position
                                 );
 
-                                cartAdapter
-                                        .notifyItemRemoved(
-                                                position
-                                        );
+                                cartAdapter.notifyItemRemoved(
+                                        position
+                                );
 
                                 updateOrderSummary();
                             }
@@ -590,6 +614,18 @@ public class MainActivity extends AppCompatActivity {
         );
 
         findViewById(
+                R.id.button_save_for_later
+        ).setOnClickListener(
+                view -> showSaveQuotationDialog()
+        );
+
+        findViewById(
+                R.id.button_saved_quotations
+        ).setOnClickListener(
+                view -> openSavedQuotations()
+        );
+
+        findViewById(
                 R.id.button_clear_order
         ).setOnClickListener(
                 view -> confirmClearOrder()
@@ -612,6 +648,696 @@ public class MainActivity extends AppCompatActivity {
         ).setOnClickListener(
                 view -> createAndShareCurrentPdf()
         );
+    }
+
+    private void openSavedQuotations() {
+        Intent intent =
+                new Intent(
+                        this,
+                        SavedQuotationsActivity.class
+                );
+
+        startActivityForResult(
+                intent,
+                REQUEST_SAVED_QUOTATION
+        );
+    }
+
+    private void loadSavedQuotationDraft(
+            long quotationId
+    ) {
+        if (quotationId <= 0) {
+            Toast.makeText(
+                    this,
+                    "Invalid saved quotation",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        try {
+            SavedQuotation quotation =
+                    quotationDb.getQuotation(
+                            quotationId
+                    );
+
+            if (quotation == null) {
+                Toast.makeText(
+                        this,
+                        "Saved quotation was not found",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                return;
+            }
+
+            List<SavedQuotationItem> savedItems =
+                    quotationDb.getQuotationItems(
+                            quotationId
+                    );
+
+            if (savedItems == null
+                    || savedItems.isEmpty()) {
+
+                Toast.makeText(
+                        this,
+                        "This saved quotation has no products",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                return;
+            }
+
+            currentSavedQuotationId =
+                    quotation.getId();
+
+            currentSavedQuotationTitle =
+                    quotation.getTitle() == null
+                            ? ""
+                            : quotation.getTitle();
+
+            currentSavedQuotationNotes =
+                    quotation.getNotes() == null
+                            ? ""
+                            : quotation.getNotes();
+
+            restoreSavedOrderTypeAndCustomer(
+                    quotation
+            );
+
+            cartItems.clear();
+
+            for (
+                    SavedQuotationItem savedItem :
+                    savedItems
+            ) {
+                if (savedItem == null
+                        || !savedItem.isValid()) {
+
+                    continue;
+                }
+
+                Product product =
+                        createProductFromSavedItem(
+                                savedItem
+                        );
+
+                CartItem cartItem =
+                        new CartItem(
+                                product,
+                                savedItem.getQuantity(),
+                                savedItem.getSelectedTier(),
+                                savedItem.getEffectiveUnitPrice()
+                        );
+
+                cartItems.add(
+                        cartItem
+                );
+            }
+
+            cartAdapter.notifyDataSetChanged();
+
+            if (!cartItems.isEmpty()) {
+                CartItem firstItem =
+                        cartItems.get(0);
+
+                discountDropdown.setText(
+                        firstItem.getTier(),
+                        false
+                );
+
+                quantityDropdown.setText(
+                        String.valueOf(
+                                firstItem.getQuantity()
+                        ),
+                        false
+                );
+            }
+
+            updateCustomerSelectionVisibility();
+            updateOrderSummary();
+
+            String title =
+                    currentSavedQuotationTitle.trim();
+
+            if (title.isEmpty()) {
+                title = "Saved quotation";
+            }
+
+            Toast.makeText(
+                    this,
+                    title + " loaded",
+                    Toast.LENGTH_LONG
+            ).show();
+
+        } catch (Exception exception) {
+            Toast.makeText(
+                    this,
+                    "Quotation could not be loaded: "
+                            + exception.getMessage(),
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+    private void restoreSavedOrderTypeAndCustomer(
+            SavedQuotation quotation
+    ) {
+        String savedOrderType =
+                quotation.getOrderType();
+
+        boolean customerOrder =
+                savedOrderType != null
+                        && savedOrderType.equalsIgnoreCase(
+                        SavedQuotation.ORDER_TYPE_CUSTOMER
+                );
+
+        selectedOrderType =
+                customerOrder
+                        ? ORDER_TYPE_CUSTOMER
+                        : ORDER_TYPE_SELF;
+
+        orderTypeDropdown.setText(
+                selectedOrderType,
+                false
+        );
+
+        if (!customerOrder) {
+            selectedCustomer = null;
+
+            customerDropdown.setText(
+                    "",
+                    false
+            );
+
+            return;
+        }
+
+        selectedCustomer =
+                findMatchingActiveCustomer(
+                        quotation
+                );
+
+        if (selectedCustomer == null) {
+            selectedCustomer =
+                    createCustomerFromSavedQuotation(
+                            quotation
+                    );
+        }
+
+        customerDropdown.setText(
+                selectedCustomer.getDisplayName(),
+                false
+        );
+
+        customerDropdownLayout.setError(
+                null
+        );
+    }
+
+    @Nullable
+    private Customer findMatchingActiveCustomer(
+            SavedQuotation quotation
+    ) {
+        long savedCustomerId =
+                quotation.getCustomerId();
+
+        String savedMobile =
+                cleanText(
+                        quotation.getCustomerMobile()
+                );
+
+        String savedName =
+                cleanText(
+                        quotation.getCustomerName()
+                );
+
+        if (savedCustomerId > 0) {
+            for (
+                    Customer customer :
+                    activeCustomers
+            ) {
+                if (customer.getId()
+                        == savedCustomerId) {
+
+                    return customer;
+                }
+            }
+        }
+
+        if (!savedMobile.isEmpty()) {
+            for (
+                    Customer customer :
+                    activeCustomers
+            ) {
+                if (savedMobile.equalsIgnoreCase(
+                        cleanText(
+                                customer.getMobile()
+                        )
+                )) {
+                    return customer;
+                }
+            }
+        }
+
+        if (!savedName.isEmpty()) {
+            for (
+                    Customer customer :
+                    activeCustomers
+            ) {
+                if (savedName.equalsIgnoreCase(
+                        cleanText(
+                                customer.getName()
+                        )
+                )) {
+                    return customer;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private Customer createCustomerFromSavedQuotation(
+            SavedQuotation quotation
+    ) {
+        Customer customer =
+                new Customer();
+
+        customer.setId(
+                quotation.getCustomerId()
+        );
+
+        String customerName =
+                cleanText(
+                        quotation.getCustomerName()
+                );
+
+        if (customerName.isEmpty()) {
+            customerName =
+                    "Saved Customer";
+        }
+
+        customer.setName(
+                customerName
+        );
+
+        customer.setMobile(
+                quotation.getCustomerMobile()
+        );
+
+        customer.setAddress(
+                quotation.getCustomerAddress()
+        );
+
+        customer.setNotes(
+                "Loaded from saved quotation"
+        );
+
+        customer.setActive(
+                true
+        );
+
+        return customer;
+    }
+
+    private Product createProductFromSavedItem(
+            SavedQuotationItem savedItem
+    ) {
+        Product product =
+                new Product();
+
+        product.setId(
+                savedItem.getProductId()
+        );
+
+        product.setCategory(
+                savedItem.getCategory()
+        );
+
+        product.setName(
+                savedItem.getProductName()
+        );
+
+        product.setVp(
+                savedItem.getVolumePoint()
+        );
+
+        product.setFullPrice(
+                savedItem.getFullPrice()
+        );
+
+        product.setPrice15(
+                savedItem.getPrice15()
+        );
+
+        product.setPrice25(
+                savedItem.getPrice25()
+        );
+
+        product.setPrice35(
+                savedItem.getPrice35()
+        );
+
+        product.setPrice42(
+                savedItem.getPrice42()
+        );
+
+        product.setPrice50(
+                savedItem.getPrice50()
+        );
+
+        product.setActive(
+                true
+        );
+
+        product.setUpdatedAt(
+                savedItem.getCreatedAt()
+        );
+
+        return product;
+    }
+
+    private void showSaveQuotationDialog() {
+        if (!validateOrderCustomer()) {
+            return;
+        }
+
+        if (cartItems.isEmpty()) {
+            Toast.makeText(
+                    this,
+                    "Add at least one product before saving",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        View dialogView =
+                LayoutInflater.from(this)
+                        .inflate(
+                                R.layout.dialog_save_quotation,
+                                null,
+                                false
+                        );
+
+        TextView orderForText =
+                dialogView.findViewById(
+                        R.id.text_save_order_for
+                );
+
+        TextView itemSummaryText =
+                dialogView.findViewById(
+                        R.id.text_save_item_summary
+                );
+
+        TextInputLayout titleLayout =
+                dialogView.findViewById(
+                        R.id.layout_quotation_title
+                );
+
+        TextInputEditText titleInput =
+                dialogView.findViewById(
+                        R.id.input_quotation_title
+                );
+
+        TextInputEditText notesInput =
+                dialogView.findViewById(
+                        R.id.input_quotation_notes
+                );
+
+        MaterialButton cancelButton =
+                dialogView.findViewById(
+                        R.id.button_cancel_save_quotation
+                );
+
+        MaterialButton saveButton =
+                dialogView.findViewById(
+                        R.id.button_confirm_save_quotation
+                );
+
+        OrderTotals totals =
+                calculateOrderTotals();
+
+        String orderForName =
+                getCurrentOrderForName();
+
+        orderForText.setText(
+                "Order For: "
+                        + orderForName
+        );
+
+        String productWord =
+                totals.totalQuantity == 1
+                        ? "product"
+                        : "products";
+
+        itemSummaryText.setText(
+                totals.totalQuantity
+                        + " "
+                        + productWord
+                        + " • "
+                        + String.format(
+                        Locale.getDefault(),
+                        "%.2f VP",
+                        totals.totalVp
+                )
+                        + " • "
+                        + formatRupees(
+                        totals.grandTotal
+                )
+        );
+
+        String defaultTitle;
+
+        if (currentSavedQuotationId > 0
+                && !currentSavedQuotationTitle
+                .trim()
+                .isEmpty()) {
+
+            defaultTitle =
+                    currentSavedQuotationTitle;
+
+        } else {
+            defaultTitle =
+                    buildDefaultQuotationTitle();
+        }
+
+        titleInput.setText(
+                defaultTitle
+        );
+
+        titleInput.setSelection(
+                defaultTitle.length()
+        );
+
+        notesInput.setText(
+                currentSavedQuotationNotes
+        );
+
+        AlertDialog dialog =
+                new MaterialAlertDialogBuilder(this)
+                        .setView(dialogView)
+                        .create();
+
+        cancelButton.setOnClickListener(
+                view -> dialog.dismiss()
+        );
+
+        saveButton.setOnClickListener(
+                view -> {
+                    titleLayout.setError(null);
+
+                    String quotationTitle =
+                            getInputText(
+                                    titleInput
+                            );
+
+                    String quotationNotes =
+                            getInputText(
+                                    notesInput
+                            );
+
+                    if (quotationTitle.isEmpty()) {
+                        titleLayout.setError(
+                                "Enter quotation name"
+                        );
+
+                        titleInput.requestFocus();
+                        return;
+                    }
+
+                    boolean updatingExisting =
+                            currentSavedQuotationId > 0;
+
+                    long quotationId =
+                            saveCurrentQuotation(
+                                    quotationTitle,
+                                    quotationNotes
+                            );
+
+                    if (quotationId > 0) {
+                        dialog.dismiss();
+
+                        Toast.makeText(
+                                this,
+                                updatingExisting
+                                        ? "Quotation draft updated"
+                                        : "Quotation draft created",
+                                Toast.LENGTH_LONG
+                        ).show();
+
+                    } else {
+                        Toast.makeText(
+                                this,
+                                "Quotation could not be saved",
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                }
+        );
+
+        dialog.show();
+    }
+
+    private long saveCurrentQuotation(
+            String quotationTitle,
+            String quotationNotes
+    ) {
+        SavedQuotation quotation =
+                new SavedQuotation(
+                        quotationTitle,
+                        selectedOrderType
+                );
+
+        if (currentSavedQuotationId > 0) {
+            quotation.setId(
+                    currentSavedQuotationId
+            );
+        }
+
+        if (ORDER_TYPE_CUSTOMER.equals(
+                selectedOrderType
+        )) {
+            quotation.setCustomer(
+                    selectedCustomer
+            );
+
+        } else {
+            quotation.setOrderType(
+                    SavedQuotation.ORDER_TYPE_SELF
+            );
+        }
+
+        quotation.setStatus(
+                SavedQuotation.STATUS_DRAFT
+        );
+
+        quotation.setNotes(
+                quotationNotes
+        );
+
+        List<SavedQuotationItem> savedItems =
+                new ArrayList<>();
+
+        for (
+                int index = 0;
+                index < cartItems.size();
+                index++
+        ) {
+            CartItem cartItem =
+                    cartItems.get(index);
+
+            SavedQuotationItem savedItem =
+                    SavedQuotationItem.fromCartItem(
+                            currentSavedQuotationId,
+                            cartItem,
+                            index
+                    );
+
+            savedItems.add(
+                    savedItem
+            );
+        }
+
+        long savedId =
+                quotationDb.saveQuotation(
+                        quotation,
+                        savedItems
+                );
+
+        if (savedId > 0) {
+            currentSavedQuotationId =
+                    savedId;
+
+            currentSavedQuotationTitle =
+                    quotationTitle;
+
+            currentSavedQuotationNotes =
+                    quotationNotes;
+        }
+
+        return savedId;
+    }
+
+    private String buildDefaultQuotationTitle() {
+        String date =
+                new SimpleDateFormat(
+                        "dd MMM yyyy",
+                        Locale.getDefault()
+                ).format(
+                        new Date()
+                );
+
+        return getCurrentOrderForName()
+                + " Quotation - "
+                + date;
+    }
+
+    private String getCurrentOrderForName() {
+        if (ORDER_TYPE_CUSTOMER.equals(
+                selectedOrderType
+        )
+                && selectedCustomer != null) {
+
+            String customerName =
+                    selectedCustomer.getName();
+
+            if (customerName != null
+                    && !customerName
+                    .trim()
+                    .isEmpty()) {
+
+                return customerName.trim();
+            }
+
+            return "Customer";
+        }
+
+        return "Self";
+    }
+
+    private String getInputText(
+            TextInputEditText input
+    ) {
+        if (input == null
+                || input.getText() == null) {
+
+            return "";
+        }
+
+        return input.getText()
+                .toString()
+                .trim();
+    }
+
+    private String cleanText(
+            String value
+    ) {
+        return value == null
+                ? ""
+                : value.trim();
     }
 
     private void createAndShareCurrentPdf() {
@@ -738,10 +1464,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshCustomers() {
+        Customer previousSelectedCustomer =
+                selectedCustomer;
+
         long previousCustomerId =
-                selectedCustomer == null
+                previousSelectedCustomer == null
                         ? 0
-                        : selectedCustomer.getId();
+                        : previousSelectedCustomer.getId();
 
         activeCustomers.clear();
 
@@ -786,6 +1515,16 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        if (selectedCustomer == null
+                && previousSelectedCustomer != null
+                && currentSavedQuotationId > 0
+                && ORDER_TYPE_CUSTOMER.equals(
+                selectedOrderType
+        )) {
+            selectedCustomer =
+                    previousSelectedCustomer;
+        }
+
         if (selectedCustomer != null) {
             customerDropdown.setText(
                     selectedCustomer
@@ -817,8 +1556,9 @@ public class MainActivity extends AppCompatActivity {
         );
 
         if (!customerOrder) {
-            customerDropdownLayout
-                    .setError(null);
+            customerDropdownLayout.setError(
+                    null
+            );
         }
     }
 
@@ -913,22 +1653,36 @@ public class MainActivity extends AppCompatActivity {
     private void updateSelectedProductCard() {
         if (selectedProduct == null) {
             selectedVp.setText(
-                    "VP: 0.00"
+                    "0.00 VP"
             );
 
             selectedFull.setText(
-                    "Full: ₹0"
+                    formatRupees(0)
             );
 
             selectedPrice.setText(
-                    "Selected: ₹0"
+                    formatRupees(0)
             );
 
-            selectedPrice15.setText("₹0");
-            selectedPrice25.setText("₹0");
-            selectedPrice35.setText("₹0");
-            selectedPrice42.setText("₹0");
-            selectedPrice50.setText("₹0");
+            selectedPrice15.setText(
+                    formatRupees(0)
+            );
+
+            selectedPrice25.setText(
+                    formatRupees(0)
+            );
+
+            selectedPrice35.setText(
+                    formatRupees(0)
+            );
+
+            selectedPrice42.setText(
+                    formatRupees(0)
+            );
+
+            selectedPrice50.setText(
+                    formatRupees(0)
+            );
 
             return;
         }
@@ -947,53 +1701,80 @@ public class MainActivity extends AppCompatActivity {
         selectedVp.setText(
                 String.format(
                         Locale.getDefault(),
-                        "VP: %.2f",
+                        "%.2f VP",
                         selectedProduct.getVp()
                 )
         );
 
         selectedFull.setText(
-                "Full: ₹"
-                        + selectedProduct
-                        .getFullPrice()
+                formatRupees(
+                        selectedProduct
+                                .getFullPrice()
+                )
         );
 
         selectedPrice.setText(
-                "Selected: ₹"
-                        + selectedProduct
-                        .getPriceForTier(
-                                selectedTier
-                        )
+                formatRupees(
+                        selectedProduct
+                                .getPriceForTier(
+                                        selectedTier
+                                )
+                )
         );
 
         selectedPrice15.setText(
-                "₹"
-                        + selectedProduct
-                        .getPrice15()
+                formatRupees(
+                        selectedProduct
+                                .getPrice15()
+                )
         );
 
         selectedPrice25.setText(
-                "₹"
-                        + selectedProduct
-                        .getPrice25()
+                formatRupees(
+                        selectedProduct
+                                .getPrice25()
+                )
         );
 
         selectedPrice35.setText(
-                "₹"
-                        + selectedProduct
-                        .getPrice35()
+                formatRupees(
+                        selectedProduct
+                                .getPrice35()
+                )
         );
 
         selectedPrice42.setText(
-                "₹"
-                        + selectedProduct
-                        .getPrice42()
+                formatRupees(
+                        selectedProduct
+                                .getPrice42()
+                )
         );
 
         selectedPrice50.setText(
-                "₹"
-                        + selectedProduct
-                        .getPrice50()
+                formatRupees(
+                        selectedProduct
+                                .getPrice50()
+                )
+        );
+    }
+
+    private String formatRupees(
+            int amount
+    ) {
+        NumberFormat numberFormat =
+                NumberFormat.getNumberInstance(
+                        new Locale(
+                                "en",
+                                "IN"
+                        )
+                );
+
+        numberFormat.setMinimumFractionDigits(0);
+        numberFormat.setMaximumFractionDigits(0);
+
+        return "₹"
+                + numberFormat.format(
+                amount
         );
     }
 
@@ -1089,33 +1870,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean validateOrderCustomer() {
-        customerDropdownLayout
-                .setError(null);
+        customerDropdownLayout.setError(
+                null
+        );
 
         if (ORDER_TYPE_CUSTOMER.equals(
                 selectedOrderType
         )) {
+            if (selectedCustomer != null) {
+                return true;
+            }
+
             if (activeCustomers.isEmpty()) {
                 showNoCustomerDialog();
                 return false;
             }
 
-            if (selectedCustomer == null) {
-                customerDropdownLayout.setError(
-                        "Select a customer"
-                );
+            customerDropdownLayout.setError(
+                    "Select a customer"
+            );
 
-                customerDropdown.requestFocus();
-                customerDropdown.showDropDown();
+            customerDropdown.requestFocus();
+            customerDropdown.showDropDown();
 
-                Toast.makeText(
-                        this,
-                        "Please select a customer",
-                        Toast.LENGTH_SHORT
-                ).show();
+            Toast.makeText(
+                    this,
+                    "Please select a customer",
+                    Toast.LENGTH_SHORT
+            ).show();
 
-                return false;
-            }
+            return false;
         }
 
         return true;
@@ -1159,7 +1943,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void updateOrderSummary() {
+    private OrderTotals calculateOrderTotals() {
         int totalQuantity = 0;
         double totalVolumePoints = 0d;
         int subtotal = 0;
@@ -1187,6 +1971,19 @@ public class MainActivity extends AppCompatActivity {
         int finalTotal =
                 subtotal + logistics;
 
+        return new OrderTotals(
+                totalQuantity,
+                totalVolumePoints,
+                subtotal,
+                logistics,
+                finalTotal
+        );
+    }
+
+    private void updateOrderSummary() {
+        OrderTotals totals =
+                calculateOrderTotals();
+
         boolean orderEmpty =
                 cartItems.isEmpty();
 
@@ -1203,36 +2000,40 @@ public class MainActivity extends AppCompatActivity {
         );
 
         itemCount.setText(
-                totalQuantity
-                        + (totalQuantity == 1
+                totals.totalQuantity
+                        + (totals.totalQuantity == 1
                         ? " item"
                         : " items")
         );
 
         totalProducts.setText(
                 "Products: "
-                        + totalQuantity
+                        + totals.totalQuantity
         );
 
         totalVp.setText(
                 String.format(
                         Locale.getDefault(),
                         "Total VP: %.2f",
-                        totalVolumePoints
+                        totals.totalVp
                 )
         );
 
         logisticsText.setText(
-                "Logistics: ₹"
-                        + logistics
-                        + (logistics > 0
+                "Logistics: "
+                        + formatRupees(
+                        totals.logistics
+                )
+                        + (totals.logistics > 0
                         ? " (below 100 VP)"
                         : "")
         );
 
         grandTotal.setText(
-                "Grand Total: ₹"
-                        + finalTotal
+                "Grand Total: "
+                        + formatRupees(
+                        totals.grandTotal
+                )
         );
 
         if (ORDER_TYPE_CUSTOMER.equals(
@@ -1280,13 +2081,19 @@ public class MainActivity extends AppCompatActivity {
                         (dialog, which) -> {
                             cartItems.clear();
 
-                            cartAdapter
-                                    .notifyDataSetChanged();
+                            cartAdapter.notifyDataSetChanged();
 
+                            resetCurrentSavedDraft();
                             updateOrderSummary();
                         }
                 )
                 .show();
+    }
+
+    private void resetCurrentSavedDraft() {
+        currentSavedQuotationId = 0L;
+        currentSavedQuotationTitle = "";
+        currentSavedQuotationNotes = "";
     }
 
     private void createOrderExport(
@@ -1310,7 +2117,9 @@ public class MainActivity extends AppCompatActivity {
                 new SimpleDateFormat(
                         "yyyyMMdd_HHmm",
                         Locale.getDefault()
-                ).format(new Date());
+                ).format(
+                        new Date()
+                );
 
         String quotationName =
                 getQuotationFileName();
@@ -1411,6 +2220,39 @@ public class MainActivity extends AppCompatActivity {
                 data
         );
 
+        if (requestCode
+                == REQUEST_SAVED_QUOTATION) {
+
+            if (resultCode != RESULT_OK
+                    || data == null) {
+
+                return;
+            }
+
+            long quotationId =
+                    data.getLongExtra(
+                            SavedQuotationsActivity
+                                    .EXTRA_QUOTATION_ID,
+                            0L
+                    );
+
+            if (quotationId <= 0) {
+                Toast.makeText(
+                        this,
+                        "Saved quotation could not be selected",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                return;
+            }
+
+            loadSavedQuotationDraft(
+                    quotationId
+            );
+
+            return;
+        }
+
         if (resultCode != RESULT_OK
                 || data == null
                 || data.getData() == null) {
@@ -1421,32 +2263,8 @@ public class MainActivity extends AppCompatActivity {
         Uri uri =
                 data.getData();
 
-        int totalQuantity = 0;
-        double totalVolumePoints = 0d;
-        int subtotal = 0;
-
-        for (
-                CartItem cartItem :
-                cartItems
-        ) {
-            totalQuantity +=
-                    cartItem.getQuantity();
-
-            totalVolumePoints +=
-                    cartItem.getTotalVp();
-
-            subtotal +=
-                    cartItem.getTotalPrice();
-        }
-
-        int logistics =
-                totalVolumePoints > 0
-                        && totalVolumePoints < 100
-                        ? 118
-                        : 0;
-
-        int finalTotal =
-                subtotal + logistics;
+        OrderTotals totals =
+                calculateOrderTotals();
 
         Customer exportCustomer =
                 ORDER_TYPE_CUSTOMER.equals(
@@ -1463,10 +2281,10 @@ public class MainActivity extends AppCompatActivity {
                         getContentResolver(),
                         uri,
                         cartItems,
-                        totalQuantity,
-                        totalVolumePoints,
-                        logistics,
-                        finalTotal,
+                        totals.totalQuantity,
+                        totals.totalVp,
+                        totals.logistics,
+                        totals.grandTotal,
                         selectedOrderType,
                         exportCustomer
                 );
@@ -1477,18 +2295,17 @@ public class MainActivity extends AppCompatActivity {
                         Toast.LENGTH_LONG
                 ).show();
 
-            } else if (
-                    requestCode
-                            == REQUEST_ORDER_PDF
-            ) {
+            } else if (requestCode
+                    == REQUEST_ORDER_PDF) {
+
                 ExportUtils.writeQuotePdf(
                         getContentResolver(),
                         uri,
                         cartItems,
-                        totalQuantity,
-                        totalVolumePoints,
-                        logistics,
-                        finalTotal,
+                        totals.totalQuantity,
+                        totals.totalVp,
+                        totals.logistics,
+                        totals.grandTotal,
                         selectedOrderType,
                         exportCustomer
                 );
@@ -1518,7 +2335,10 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
 
-        for (String value : values) {
+        for (
+                String value :
+                values
+        ) {
             if (value != null
                     && value.equals(target)) {
 
@@ -1527,5 +2347,37 @@ public class MainActivity extends AppCompatActivity {
         }
 
         return false;
+    }
+
+    private static class OrderTotals {
+
+        private final int totalQuantity;
+        private final double totalVp;
+        private final int subtotal;
+        private final int logistics;
+        private final int grandTotal;
+
+        private OrderTotals(
+                int totalQuantity,
+                double totalVp,
+                int subtotal,
+                int logistics,
+                int grandTotal
+        ) {
+            this.totalQuantity =
+                    totalQuantity;
+
+            this.totalVp =
+                    totalVp;
+
+            this.subtotal =
+                    subtotal;
+
+            this.logistics =
+                    logistics;
+
+            this.grandTotal =
+                    grandTotal;
+        }
     }
 }

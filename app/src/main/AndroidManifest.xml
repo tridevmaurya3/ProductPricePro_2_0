@@ -24,6 +24,10 @@
         </provider>
 
         <activity
+            android:name=".SavedQuotationsActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".CustomerManagerActivity"
             android:exported="false" />
 
