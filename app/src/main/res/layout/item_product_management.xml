@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.ProductPrice.Card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                <TextView android:id="@+id/text_product_name_item" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/text_primary" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:id="@+id/text_product_category_item" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:textColor="@color/text_secondary" android:textSize="12sp" />
+            </LinearLayout>
+            <com.google.android.material.button.MaterialButton android:id="@+id/button_edit_product" style="@style/Widget.Material3.Button.IconButton" android:layout_width="44dp" android:layout_height="44dp" android:contentDescription="Edit" app:icon="@drawable/ic_edit" app:iconTint="@color/primary" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/button_delete_product" style="@style/Widget.Material3.Button.IconButton" android:layout_width="44dp" android:layout_height="44dp" android:contentDescription="Delete" app:icon="@drawable/ic_delete" app:iconTint="@color/danger" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:background="@drawable/bg_total" android:orientation="horizontal" android:padding="10dp">
+            <TextView android:id="@+id/text_product_vp_item" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="VP 0" android:textColor="@color/text_primary" android:textStyle="bold" />
+            <TextView android:id="@+id/text_product_full_item" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:text="Full ₹0" android:textColor="@color/text_primary" android:textStyle="bold" />
+            <TextView android:id="@+id/text_product_price50_item" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="end" android:text="@50 ₹0" android:textColor="@color/primary" android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

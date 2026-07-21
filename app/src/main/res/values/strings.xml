@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Product Price Pro</string>
+    <string name="club_name">Health Care Wellness Club</string>
+    <string name="manage_products">Manage Products</string>
+    <string name="update_prices">Update Prices</string>
+    <string name="export_excel">Export Excel</string>
+    <string name="export_pdf">Export PDF</string>
+    <string name="import_csv">Import CSV</string>
+    <string name="all_categories">All Categories</string>
+</resources>

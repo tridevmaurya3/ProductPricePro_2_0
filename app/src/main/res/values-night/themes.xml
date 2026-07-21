@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.ProductPrice" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#67D9A5</item>
+        <item name="colorOnPrimary">#003824</item>
+        <item name="colorPrimaryContainer">#075E3A</item>
+        <item name="colorOnPrimaryContainer">#DDF6E9</item>
+        <item name="colorSecondary">#F5C24B</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:statusBarColor">#003824</item>
+    </style>
+</resources>
