@@ -37,6 +37,14 @@ public class SavedQuotationAdapter extends
                 SavedQuotation quotation
         );
 
+        void onRenameQuotation(
+                SavedQuotation quotation
+        );
+
+        void onDuplicateQuotation(
+                SavedQuotation quotation
+        );
+
         void onDeleteQuotation(
                 SavedQuotation quotation
         );
@@ -266,6 +274,8 @@ public class SavedQuotationAdapter extends
         private final TextView notesText;
 
         private final MaterialButton changeStatusButton;
+        private final MaterialButton renameButton;
+        private final MaterialButton duplicateButton;
         private final MaterialButton openButton;
         private final MaterialButton shareButton;
         private final MaterialButton deleteButton;
@@ -343,6 +353,16 @@ public class SavedQuotationAdapter extends
             changeStatusButton =
                     itemView.findViewById(
                             R.id.button_change_saved_status
+                    );
+
+            renameButton =
+                    itemView.findViewById(
+                            R.id.button_rename_saved_quotation
+                    );
+
+            duplicateButton =
+                    itemView.findViewById(
+                            R.id.button_duplicate_saved_quotation
                     );
 
             openButton =
@@ -456,6 +476,26 @@ public class SavedQuotationAdapter extends
                     view -> {
                         if (listener != null) {
                             listener.onShareQuotation(
+                                    quotation
+                            );
+                        }
+                    }
+            );
+
+            renameButton.setOnClickListener(
+                    view -> {
+                        if (listener != null) {
+                            listener.onRenameQuotation(
+                                    quotation
+                            );
+                        }
+                    }
+            );
+
+            duplicateButton.setOnClickListener(
+                    view -> {
+                        if (listener != null) {
+                            listener.onDuplicateQuotation(
                                     quotation
                             );
                         }

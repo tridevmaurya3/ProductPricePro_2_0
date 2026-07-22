@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -27,15 +28,20 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class SavedQuotationsActivity extends AppCompatActivity
         implements SavedQuotationAdapter.OnQuotationActionListener {
 
     public static final String EXTRA_QUOTATION_ID =
             "extra_quotation_id";
+
+    public static final String EXTRA_INITIAL_STATUS_FILTER =
+            "extra_initial_status_filter";
 
     private static final String FILTER_ALL =
             "All";
@@ -92,11 +98,13 @@ public class SavedQuotationsActivity extends AppCompatActivity
         quotationDb =
                 QuotationDbHelper.getInstance(this);
 
+        readInitialStatusFilter();
         bindViews();
         setupToolbar();
         setupRecyclerView();
         setupSearch();
         setupStatusFilters();
+        applySelectedFilterToChips();
         setupActions();
     }
 
@@ -105,6 +113,59 @@ public class SavedQuotationsActivity extends AppCompatActivity
         super.onResume();
 
         loadSavedQuotations();
+    }
+
+    private void readInitialStatusFilter() {
+        Intent intent =
+                getIntent();
+
+        if (intent == null) {
+            selectedStatusFilter =
+                    FILTER_ALL;
+
+            return;
+        }
+
+        String initialFilter =
+                intent.getStringExtra(
+                        EXTRA_INITIAL_STATUS_FILTER
+                );
+
+        selectedStatusFilter =
+                normalizeInitialFilter(
+                        initialFilter
+                );
+    }
+
+    private String normalizeInitialFilter(
+            String statusFilter
+    ) {
+        if (statusFilter == null) {
+            return FILTER_ALL;
+        }
+
+        String cleanFilter =
+                statusFilter.trim();
+
+        if (cleanFilter.equalsIgnoreCase(
+                FILTER_DRAFT
+        )) {
+            return FILTER_DRAFT;
+        }
+
+        if (cleanFilter.equalsIgnoreCase(
+                FILTER_FINAL
+        )) {
+            return FILTER_FINAL;
+        }
+
+        if (cleanFilter.equalsIgnoreCase(
+                FILTER_SENT
+        )) {
+            return FILTER_SENT;
+        }
+
+        return FILTER_ALL;
     }
 
     private void bindViews() {
@@ -272,14 +333,41 @@ public class SavedQuotationsActivity extends AppCompatActivity
         );
     }
 
+    private void applySelectedFilterToChips() {
+        filterAllChip.setChecked(
+                FILTER_ALL.equals(
+                        selectedStatusFilter
+                )
+        );
+
+        filterDraftChip.setChecked(
+                FILTER_DRAFT.equals(
+                        selectedStatusFilter
+                )
+        );
+
+        filterFinalChip.setChecked(
+                FILTER_FINAL.equals(
+                        selectedStatusFilter
+                )
+        );
+
+        filterSentChip.setChecked(
+                FILTER_SENT.equals(
+                        selectedStatusFilter
+                )
+        );
+    }
+
     private void selectStatusFilter(
             String statusFilter
     ) {
         selectedStatusFilter =
-                statusFilter == null
-                        ? FILTER_ALL
-                        : statusFilter;
+                normalizeInitialFilter(
+                        statusFilter
+                );
 
+        applySelectedFilterToChips();
         loadSavedQuotations();
     }
 
@@ -603,6 +691,501 @@ public class SavedQuotationsActivity extends AppCompatActivity
         shareSavedQuotation(
                 quotation
         );
+    }
+
+    @Override
+    public void onRenameQuotation(
+            SavedQuotation quotation
+    ) {
+        if (quotation == null
+                || quotation.getId() <= 0) {
+
+            Toast.makeText(
+                    this,
+                    "Quotation could not be renamed",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        showRenameQuotationDialog(
+                quotation
+        );
+    }
+
+    private void showRenameQuotationDialog(
+            SavedQuotation quotation
+    ) {
+        LinearLayout dialogContainer =
+                new LinearLayout(this);
+
+        dialogContainer.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        int horizontalPadding =
+                dpToPx(24);
+
+        int topPadding =
+                dpToPx(8);
+
+        dialogContainer.setPadding(
+                horizontalPadding,
+                topPadding,
+                horizontalPadding,
+                0
+        );
+
+        TextInputLayout titleInputLayout =
+                new TextInputLayout(
+                        this,
+                        null,
+                        com.google.android.material.R.attr
+                                .textInputOutlinedStyle
+                );
+
+        titleInputLayout.setHint(
+                "Quotation Name"
+        );
+
+        titleInputLayout.setBoxBackgroundMode(
+                TextInputLayout.BOX_BACKGROUND_OUTLINE
+        );
+
+        titleInputLayout.setBoxCornerRadii(
+                dpToPx(12),
+                dpToPx(12),
+                dpToPx(12),
+                dpToPx(12)
+        );
+
+        TextInputEditText titleInput =
+                new TextInputEditText(this);
+
+        titleInput.setSingleLine(
+                true
+        );
+
+        titleInput.setTextSize(
+                15f
+        );
+
+        titleInput.setSelectAllOnFocus(
+                false
+        );
+
+        titleInputLayout.addView(
+                titleInput,
+                new TextInputLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        dialogContainer.addView(
+                titleInputLayout,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        String currentTitle =
+                safeText(
+                        quotation.getTitle()
+                );
+
+        if (currentTitle.isEmpty()) {
+            currentTitle =
+                    "Saved Quotation";
+        }
+
+        titleInput.setText(
+                currentTitle
+        );
+
+        titleInput.setSelection(
+                currentTitle.length()
+        );
+
+        androidx.appcompat.app.AlertDialog dialog =
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(
+                                "Rename Quotation"
+                        )
+                        .setMessage(
+                                "Enter a new name for this saved quotation."
+                        )
+                        .setView(
+                                dialogContainer
+                        )
+                        .setNegativeButton(
+                                "Cancel",
+                                null
+                        )
+                        .setPositiveButton(
+                                "Rename",
+                                null
+                        )
+                        .create();
+
+        dialog.setOnShowListener(
+                dialogInterface -> {
+                    dialog.getButton(
+                            androidx.appcompat.app.AlertDialog
+                                    .BUTTON_POSITIVE
+                    ).setOnClickListener(
+                            view -> {
+                                titleInputLayout.setError(
+                                        null
+                                );
+
+                                String newTitle =
+                                        getInputText(
+                                                titleInput
+                                        );
+
+                                if (newTitle.isEmpty()) {
+                                    titleInputLayout.setError(
+                                            "Enter quotation name"
+                                    );
+
+                                    titleInput.requestFocus();
+                                    return;
+                                }
+
+                                if (newTitle.equals(
+                                        safeText(
+                                                quotation.getTitle()
+                                        )
+                                )) {
+                                    dialog.dismiss();
+                                    return;
+                                }
+
+                                boolean renamed =
+                                        renameQuotation(
+                                                quotation.getId(),
+                                                newTitle
+                                        );
+
+                                if (renamed) {
+                                    dialog.dismiss();
+                                }
+                            }
+                    );
+
+                    titleInput.requestFocus();
+                }
+        );
+
+        dialog.show();
+    }
+
+    private boolean renameQuotation(
+            long quotationId,
+            String newTitle
+    ) {
+        try {
+            boolean renamed =
+                    quotationDb.renameQuotation(
+                            quotationId,
+                            newTitle
+                    );
+
+            if (!renamed) {
+                Toast.makeText(
+                        this,
+                        "Quotation name could not be updated",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                return false;
+            }
+
+            Toast.makeText(
+                    this,
+                    "Quotation renamed",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            loadSavedQuotations();
+
+            return true;
+
+        } catch (Exception exception) {
+            Toast.makeText(
+                    this,
+                    "Quotation name could not be updated: "
+                            + getErrorMessage(
+                            exception
+                    ),
+                    Toast.LENGTH_LONG
+            ).show();
+
+            return false;
+        }
+    }
+
+    private int dpToPx(
+            int dp
+    ) {
+        float density =
+                getResources()
+                        .getDisplayMetrics()
+                        .density;
+
+        return Math.round(
+                dp * density
+        );
+    }
+
+    private String getInputText(
+            TextInputEditText input
+    ) {
+        if (input == null
+                || input.getText() == null) {
+
+            return "";
+        }
+
+        return input.getText()
+                .toString()
+                .trim();
+    }
+
+    @Override
+    public void onDuplicateQuotation(
+            SavedQuotation quotation
+    ) {
+        if (quotation == null
+                || quotation.getId() <= 0) {
+
+            Toast.makeText(
+                    this,
+                    "Quotation could not be duplicated",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        String quotationTitle =
+                safeText(
+                        quotation.getTitle()
+                );
+
+        if (quotationTitle.isEmpty()) {
+            quotationTitle =
+                    "Saved Quotation";
+        }
+
+        String finalQuotationTitle =
+                quotationTitle;
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(
+                        "Duplicate quotation?"
+                )
+                .setMessage(
+                        "A new Draft copy of \""
+                                + finalQuotationTitle
+                                + "\" will be created."
+                )
+                .setNegativeButton(
+                        "Cancel",
+                        null
+                )
+                .setPositiveButton(
+                        "Duplicate",
+                        (dialog, which) ->
+                                duplicateQuotation(
+                                        quotation
+                                )
+                )
+                .show();
+    }
+
+    private void duplicateQuotation(
+            SavedQuotation sourceQuotation
+    ) {
+        try {
+            List<SavedQuotationItem> sourceItems =
+                    quotationDb.getQuotationItems(
+                            sourceQuotation.getId()
+                    );
+
+            if (sourceItems == null
+                    || sourceItems.isEmpty()) {
+
+                Toast.makeText(
+                        this,
+                        "This quotation has no products to duplicate",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                return;
+            }
+
+            String duplicateTitle =
+                    buildDuplicateTitle(
+                            sourceQuotation.getTitle()
+                    );
+
+            SavedQuotation duplicateQuotation =
+                    new SavedQuotation(
+                            duplicateTitle,
+                            sourceQuotation.getOrderType()
+                    );
+
+            duplicateQuotation.setStatus(
+                    SavedQuotation.STATUS_DRAFT
+            );
+
+            duplicateQuotation.setNotes(
+                    sourceQuotation.getNotes()
+            );
+
+            boolean customerOrder =
+                    sourceQuotation.getOrderType() != null
+                            && sourceQuotation.getOrderType()
+                            .equalsIgnoreCase(
+                                    SavedQuotation.ORDER_TYPE_CUSTOMER
+                            );
+
+            if (customerOrder) {
+                Customer copiedCustomer =
+                        createCustomerForShare(
+                                sourceQuotation
+                        );
+
+                duplicateQuotation.setCustomer(
+                        copiedCustomer
+                );
+
+            } else {
+                duplicateQuotation.setOrderType(
+                        SavedQuotation.ORDER_TYPE_SELF
+                );
+            }
+
+            List<SavedQuotationItem> duplicateItems =
+                    new ArrayList<>();
+
+            int sortOrder = 0;
+
+            for (
+                    SavedQuotationItem sourceItem :
+                    sourceItems
+            ) {
+                if (sourceItem == null
+                        || !sourceItem.isValid()) {
+
+                    continue;
+                }
+
+                Product copiedProduct =
+                        createProductFromSavedItem(
+                                sourceItem
+                        );
+
+                SavedQuotationItem duplicateItem =
+                        new SavedQuotationItem(
+                                0L,
+                                copiedProduct,
+                                sourceItem.getSelectedTier(),
+                                sourceItem.getQuantity(),
+                                sortOrder
+                        );
+
+                duplicateItems.add(
+                        duplicateItem
+                );
+
+                sortOrder++;
+            }
+
+            if (duplicateItems.isEmpty()) {
+                Toast.makeText(
+                        this,
+                        "No valid products found to duplicate",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                return;
+            }
+
+            long duplicatedQuotationId =
+                    quotationDb.saveQuotation(
+                            duplicateQuotation,
+                            duplicateItems
+                    );
+
+            if (duplicatedQuotationId <= 0) {
+                Toast.makeText(
+                        this,
+                        "Quotation could not be duplicated",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                return;
+            }
+
+            Toast.makeText(
+                    this,
+                    "Draft copy created",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            selectedStatusFilter =
+                    FILTER_DRAFT;
+
+            currentSearchQuery = "";
+
+            searchInput.setText("");
+
+            applySelectedFilterToChips();
+            loadSavedQuotations();
+
+        } catch (Exception exception) {
+            Toast.makeText(
+                    this,
+                    "Quotation could not be duplicated: "
+                            + getErrorMessage(
+                            exception
+                    ),
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+    private String buildDuplicateTitle(
+            String sourceTitle
+    ) {
+        String cleanTitle =
+                safeText(
+                        sourceTitle
+                );
+
+        if (cleanTitle.isEmpty()) {
+            return "Saved Quotation Copy";
+        }
+
+        String lowerTitle =
+                cleanTitle.toLowerCase(
+                        Locale.getDefault()
+                );
+
+        if (lowerTitle.endsWith(
+                " copy"
+        )) {
+            return cleanTitle
+                    + " 2";
+        }
+
+        return cleanTitle
+                + " Copy";
     }
 
     @Override

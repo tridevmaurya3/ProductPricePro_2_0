@@ -50,6 +50,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String ORDER_TYPE_SELF = "Self";
     private static final String ORDER_TYPE_CUSTOMER = "Customer";
 
+    private static final String FILTER_ALL = "All";
+
     private ProductDbHelper productDb;
     private CustomerDbHelper customerDb;
     private QuotationDbHelper quotationDb;
@@ -76,6 +78,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView statProducts;
     private TextView statCategories;
     private TextView statUpdated;
+
+    private TextView summaryDraftCount;
+    private TextView summaryFinalCount;
+    private TextView summarySentCount;
 
     private TextView itemCount;
     private TextView emptyOrder;
@@ -137,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
         updateCustomerSelectionVisibility();
         updateSelectedProductCard();
         updateOrderSummary();
+        refreshQuotationSummary();
     }
 
     @Override
@@ -145,6 +152,7 @@ public class MainActivity extends AppCompatActivity {
 
         refreshDashboardAndProducts();
         refreshCustomers();
+        refreshQuotationSummary();
     }
 
     private void bindViews() {
@@ -248,6 +256,21 @@ public class MainActivity extends AppCompatActivity {
         statUpdated =
                 findViewById(
                         R.id.text_stat_updated
+                );
+
+        summaryDraftCount =
+                findViewById(
+                        R.id.text_summary_draft_count
+                );
+
+        summaryFinalCount =
+                findViewById(
+                        R.id.text_summary_final_count
+                );
+
+        summarySentCount =
+                findViewById(
+                        R.id.text_summary_sent_count
                 );
 
         itemCount =
@@ -648,14 +671,61 @@ public class MainActivity extends AppCompatActivity {
         ).setOnClickListener(
                 view -> createAndShareCurrentPdf()
         );
+
+        findViewById(
+                R.id.button_view_all_quotations
+        ).setOnClickListener(
+                view -> openSavedQuotations(
+                        FILTER_ALL
+                )
+        );
+
+        findViewById(
+                R.id.card_summary_draft
+        ).setOnClickListener(
+                view -> openSavedQuotations(
+                        SavedQuotation.STATUS_DRAFT
+                )
+        );
+
+        findViewById(
+                R.id.card_summary_final
+        ).setOnClickListener(
+                view -> openSavedQuotations(
+                        SavedQuotation.STATUS_FINAL
+                )
+        );
+
+        findViewById(
+                R.id.card_summary_sent
+        ).setOnClickListener(
+                view -> openSavedQuotations(
+                        SavedQuotation.STATUS_SENT
+                )
+        );
     }
 
     private void openSavedQuotations() {
+        openSavedQuotations(
+                FILTER_ALL
+        );
+    }
+
+    private void openSavedQuotations(
+            String initialStatusFilter
+    ) {
         Intent intent =
                 new Intent(
                         this,
                         SavedQuotationsActivity.class
                 );
+
+        intent.putExtra(
+                SavedQuotationsActivity.EXTRA_INITIAL_STATUS_FILTER,
+                initialStatusFilter == null
+                        ? FILTER_ALL
+                        : initialStatusFilter
+        );
 
         startActivityForResult(
                 intent,
@@ -1180,6 +1250,8 @@ public class MainActivity extends AppCompatActivity {
                     if (quotationId > 0) {
                         dialog.dismiss();
 
+                        refreshQuotationSummary();
+
                         Toast.makeText(
                                 this,
                                 updatingExisting
@@ -1378,6 +1450,70 @@ public class MainActivity extends AppCompatActivity {
                 new Intent(
                         this,
                         CustomerManagerActivity.class
+                )
+        );
+    }
+
+    private void refreshQuotationSummary() {
+        int draftCount = 0;
+        int finalCount = 0;
+        int sentCount = 0;
+
+        try {
+            List<SavedQuotation> savedQuotations =
+                    quotationDb.getAllQuotations();
+
+            if (savedQuotations != null) {
+                for (
+                        SavedQuotation quotation :
+                        savedQuotations
+                ) {
+                    if (quotation == null) {
+                        continue;
+                    }
+
+                    String status =
+                            quotation.getStatus();
+
+                    if (status != null
+                            && status.trim().equalsIgnoreCase(
+                            SavedQuotation.STATUS_FINAL
+                    )) {
+                        finalCount++;
+
+                    } else if (status != null
+                            && status.trim().equalsIgnoreCase(
+                            SavedQuotation.STATUS_SENT
+                    )) {
+                        sentCount++;
+
+                    } else {
+                        draftCount++;
+                    }
+                }
+            }
+
+        } catch (Exception exception) {
+            draftCount = 0;
+            finalCount = 0;
+            sentCount = 0;
+        }
+
+        summaryDraftCount.setText(
+                String.valueOf(
+                        draftCount
+                )
+        );
+
+        summaryFinalCount.setText(
+                String.valueOf(
+                        finalCount
+                )
+        );
+
+        summarySentCount.setText(
+                String.valueOf(
+                        sentCount
                 )
         );
     }
@@ -2222,6 +2358,8 @@ public class MainActivity extends AppCompatActivity {
 
         if (requestCode
                 == REQUEST_SAVED_QUOTATION) {
+
+            refreshQuotationSummary();
 
             if (resultCode != RESULT_OK
                     || data == null) {

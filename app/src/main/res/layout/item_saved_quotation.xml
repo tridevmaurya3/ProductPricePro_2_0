@@ -407,6 +407,60 @@
             app:strokeColor="#E8D29A"
             app:strokeWidth="1dp" />
 
+        <!-- RENAME AND DUPLICATE ACTIONS -->
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="9dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_rename_saved_quotation"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:minWidth="0dp"
+                android:text="Rename"
+                android:textAllCaps="false"
+                android:textColor="#0F6CBD"
+                android:textSize="12sp"
+                app:cornerRadius="23dp"
+                app:icon="@drawable/ic_edit"
+                app:iconGravity="textStart"
+                app:iconPadding="5dp"
+                app:iconSize="17dp"
+                app:iconTint="#0F6CBD"
+                app:strokeColor="#B8D8F2"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_duplicate_saved_quotation"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1.25"
+                android:gravity="center"
+                android:minWidth="0dp"
+                android:text="Duplicate"
+                android:textAllCaps="false"
+                android:textColor="#6B4FA1"
+                android:textSize="12sp"
+                app:cornerRadius="23dp"
+                app:icon="@drawable/ic_copy"
+                app:iconGravity="textStart"
+                app:iconPadding="5dp"
+                app:iconSize="17dp"
+                app:iconTint="#6B4FA1"
+                app:strokeColor="#BDAFDC"
+                app:strokeWidth="1dp" />
+
+        </LinearLayout>
+
         <!-- MAIN ACTIONS -->
 
         <LinearLayout
