@@ -20,9 +20,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Safely maps the user's intentionally simplified catalogue to the official
- * company PDFs. The app can keep one logical item such as Formula 1-500 gms
- * even when the PDF contains many flavour Stock Nos. with the same prices.
+ * Maps the user's intentionally simplified catalogue to official company PDFs.
+ *
+ * Multiple flavour Stock Nos. that represent the same logical product and have
+ * the same price set are collapsed before matching. Example: Formula 1 500 gms
+ * flavours become one logical company price group. Category is used as an
+ * additional confidence signal, not as a hard requirement.
  */
 public final class SmartCompanyPriceMatcher {
 
@@ -71,6 +74,8 @@ public final class SmartCompanyPriceMatcher {
                 plan
         );
 
+        companyPrices = collapseEquivalentVariants(companyPrices);
+
         if (companyPrices.isEmpty()) {
             plan.addConflict("No complete company price rows were available for safe matching.");
             return plan;
@@ -82,7 +87,9 @@ public final class SmartCompanyPriceMatcher {
         }
 
         for (Product product : appProducts) {
-            if (product == null || product.getId() <= 0 || safe(product.getName()).isEmpty()) {
+            if (product == null
+                    || product.getId() <= 0
+                    || safe(product.getName()).isEmpty()) {
                 continue;
             }
 
@@ -160,7 +167,8 @@ public final class SmartCompanyPriceMatcher {
             if (!sameNullablePrice(associateRow.getPrice25(), preferredRow.getPrice25())
                     || !sameNullablePrice(associateRow.getPrice35(), preferredRow.getPrice35())) {
                 plan.addConflict(
-                        "Stock " + stock + " has different 25% or 35% prices between the two PDFs."
+                        "Stock " + stock
+                                + " has different 25% or 35% prices between the two PDFs."
                 );
                 continue;
             }
@@ -172,7 +180,11 @@ public final class SmartCompanyPriceMatcher {
             Integer p50 = associateRow.getPrice50();
 
             if (associateRow.getMrp() <= 0
-                    || p15 == null || p25 == null || p35 == null || p42 == null || p50 == null) {
+                    || p15 == null
+                    || p25 == null
+                    || p35 == null
+                    || p42 == null
+                    || p50 == null) {
                 continue;
             }
 
@@ -181,12 +193,21 @@ public final class SmartCompanyPriceMatcher {
                 productName = safe(preferredRow.getProductName());
             }
 
+            String category = safe(associateRow.getCategory());
+            if (category.isEmpty()) {
+                category = safe(preferredRow.getCategory());
+            }
+
             merged.put(
                     stock,
                     new MergedCompanyPrice(
                             stock,
                             productName,
-                            Math.max(associateRow.getVolumePoint(), preferredRow.getVolumePoint()),
+                            category,
+                            Math.max(
+                                    associateRow.getVolumePoint(),
+                                    preferredRow.getVolumePoint()
+                            ),
                             associateRow.getMrp(),
                             p15,
                             p25,
@@ -198,6 +219,48 @@ public final class SmartCompanyPriceMatcher {
         }
 
         return new ArrayList<>(merged.values());
+    }
+
+    /**
+     * Collapses flavour variants only when their logical family, pack and all
+     * six mapped prices are the same. Different-price variants remain separate.
+     */
+    private static List<MergedCompanyPrice> collapseEquivalentVariants(
+            List<MergedCompanyPrice> source
+    ) {
+        Map<String, MergedCompanyPrice> grouped = new LinkedHashMap<>();
+
+        if (source == null) {
+            return new ArrayList<>();
+        }
+
+        for (MergedCompanyPrice row : source) {
+            if (row == null) {
+                continue;
+            }
+
+            String family = canonicalFamily(normalizeName(row.productName));
+            String pack = packSignature(row.productName);
+            String category = normalizeCategory(row.category);
+
+            String key = category
+                    + "|"
+                    + family
+                    + "|"
+                    + pack
+                    + "|"
+                    + row.priceSignature();
+
+            MergedCompanyPrice existing = grouped.get(key);
+
+            if (existing == null) {
+                grouped.put(key, row);
+            } else {
+                existing.variantCount++;
+            }
+        }
+
+        return new ArrayList<>(grouped.values());
     }
 
     private static MatchDecision findBestMatch(
@@ -221,7 +284,10 @@ public final class SmartCompanyPriceMatcher {
             return new MatchDecision(null, 0d, null);
         }
 
-        Collections.sort(scored, (left, right) -> Double.compare(right.score, left.score));
+        Collections.sort(
+                scored,
+                (left, right) -> Double.compare(right.score, left.score)
+        );
 
         ScoredCandidate top = scored.get(0);
         if (top.score < SAFE_MATCH_THRESHOLD) {
@@ -240,8 +306,9 @@ public final class SmartCompanyPriceMatcher {
             return new MatchDecision(
                     null,
                     top.score,
-                    "Ambiguous company match for " + product.getName()
-                            + ". Similar PDF variants have different prices, so this product was left unchanged."
+                    "Ambiguous company match for "
+                            + product.getName()
+                            + ". Similar official products have different prices, so this product was left unchanged."
             );
         }
 
@@ -252,8 +319,12 @@ public final class SmartCompanyPriceMatcher {
             Product appProduct,
             MergedCompanyPrice companyPrice
     ) {
-        String app = normalizeName(appProduct == null ? null : appProduct.getName());
-        String company = normalizeName(companyPrice == null ? null : companyPrice.productName);
+        String app = normalizeName(
+                appProduct == null ? null : appProduct.getName()
+        );
+        String company = normalizeName(
+                companyPrice == null ? null : companyPrice.productName
+        );
 
         if (!"afresh".equals(canonicalFamily(app))
                 || !"afresh".equals(canonicalFamily(company))) {
@@ -267,9 +338,7 @@ public final class SmartCompanyPriceMatcher {
             return !companyTulsi;
         }
 
-        // The user's generic Afresh item represents the standard merged-price
-        // flavour group. Tulsi has its own separate company price row, so it must
-        // never become the representative match for the generic Afresh item.
+        // Generic Afresh represents the standard flavour group, not Tulsi.
         return companyTulsi;
     }
 
@@ -287,19 +356,19 @@ public final class SmartCompanyPriceMatcher {
             return 0d;
         }
 
-        double score = tokenSimilarity(appTokens, companyTokens) * 0.56d;
+        double score = tokenSimilarity(appTokens, companyTokens) * 0.52d;
 
         String appFamily = canonicalFamily(appNormalized);
         String companyFamily = canonicalFamily(companyNormalized);
         boolean sameFamily = !appFamily.isEmpty() && appFamily.equals(companyFamily);
 
         if (sameFamily) {
-            score += 0.24d;
+            score += 0.27d;
 
             if (!containsFlavour(appNormalized)) {
                 Set<String> appGeneric = coreTokens(appNormalized, true);
                 Set<String> companyGeneric = coreTokens(companyNormalized, true);
-                score += tokenSimilarity(appGeneric, companyGeneric) * 0.12d;
+                score += tokenSimilarity(appGeneric, companyGeneric) * 0.11d;
             }
         }
 
@@ -312,13 +381,20 @@ public final class SmartCompanyPriceMatcher {
             score += 0.16d;
         } else if (packCompatibility == PackCompatibility.MISMATCH) {
             if (isGenericStandardAfresh(appNormalized, companyNormalized)) {
-                // In the official PDF the standard Afresh price columns are merged
-                // across several flavours, including the 40 gms Kashmiri Kahwa row.
-                // PDF text extraction can attach those shared values to a 50 gms
-                // representative row. Do not punish that visual-table artifact.
                 score += 0.04d;
             } else {
                 score -= 0.34d;
+            }
+        }
+
+        String appCategory = normalizeCategory(appProduct.getCategory());
+        String companyCategory = normalizeCategory(companyPrice.category);
+
+        if (!appCategory.isEmpty() && !companyCategory.isEmpty()) {
+            if (appCategory.equals(companyCategory)) {
+                score += 0.09d;
+            } else {
+                score -= 0.04d;
             }
         }
 
@@ -326,9 +402,9 @@ public final class SmartCompanyPriceMatcher {
         if (vp > 0d && companyPrice.volumePoint > 0d) {
             double difference = Math.abs(vp - companyPrice.volumePoint);
             if (difference <= 0.15d) {
-                score += 0.12d;
+                score += 0.11d;
             } else if (difference <= 1.0d) {
-                score += 0.07d;
+                score += 0.06d;
             } else if (difference <= 3.0d) {
                 score += 0.02d;
             }
@@ -339,13 +415,16 @@ public final class SmartCompanyPriceMatcher {
         if (!compactApp.isEmpty()
                 && (compactCompany.contains(compactApp)
                 || compactApp.contains(compactCompany))) {
-            score += 0.06d;
+            score += 0.05d;
         }
 
         return Math.max(0d, Math.min(1d, score));
     }
 
-    private static boolean isGenericStandardAfresh(String appNormalized, String companyNormalized) {
+    private static boolean isGenericStandardAfresh(
+            String appNormalized,
+            String companyNormalized
+    ) {
         return "afresh".equals(canonicalFamily(appNormalized))
                 && "afresh".equals(canonicalFamily(companyNormalized))
                 && !containsFlavour(appNormalized)
@@ -353,7 +432,10 @@ public final class SmartCompanyPriceMatcher {
     }
 
     private static double tokenSimilarity(Set<String> left, Set<String> right) {
-        if (left == null || right == null || left.isEmpty() || right.isEmpty()) {
+        if (left == null
+                || right == null
+                || left.isEmpty()
+                || right.isEmpty()) {
             return 0d;
         }
 
@@ -367,7 +449,9 @@ public final class SmartCompanyPriceMatcher {
         double coverage = intersection / (double) left.size();
         Set<String> union = new HashSet<>(left);
         union.addAll(right);
-        double jaccard = union.isEmpty() ? 0d : intersection / (double) union.size();
+        double jaccard = union.isEmpty()
+                ? 0d
+                : intersection / (double) union.size();
 
         return coverage * 0.72d + jaccard * 0.28d;
     }
@@ -426,17 +510,40 @@ public final class SmartCompanyPriceMatcher {
         return result;
     }
 
+    private static String packSignature(String value) {
+        List<String> packs = new ArrayList<>(extractPackSizes(value));
+        Collections.sort(packs);
+
+        StringBuilder builder = new StringBuilder();
+        for (String pack : packs) {
+            if (builder.length() > 0) {
+                builder.append('+');
+            }
+            builder.append(pack);
+        }
+        return builder.toString();
+    }
+
     private static String normalizeUnit(String unit) {
         String value = safe(unit).toLowerCase(Locale.US);
-        if (value.equals("gms") || value.equals("gm") || value.equals("grams") || value.equals("gram")) return "g";
-        if (value.equals("tablets") || value.equals("tablet") || value.equals("tabs")) return "tab";
-        if (value.equals("capsules") || value.equals("capsule")) return "caps";
+        if (value.equals("gms")
+                || value.equals("gm")
+                || value.equals("grams")
+                || value.equals("gram")) return "g";
+        if (value.equals("tablets")
+                || value.equals("tablet")
+                || value.equals("tabs")) return "tab";
+        if (value.equals("capsules")
+                || value.equals("capsule")) return "caps";
         if (value.equals("sachets")) return "sachet";
         if (value.equals("softgels")) return "softgel";
         return value;
     }
 
-    private static Set<String> coreTokens(String normalizedName, boolean removeFlavours) {
+    private static Set<String> coreTokens(
+            String normalizedName,
+            boolean removeFlavours
+    ) {
         Set<String> tokens = new HashSet<>();
         if (normalizedName == null || normalizedName.trim().isEmpty()) {
             return tokens;
@@ -456,21 +563,48 @@ public final class SmartCompanyPriceMatcher {
 
     private static String canonicalFamily(String normalizedName) {
         String value = safe(normalizedName);
+
         if (value.contains("formula 1")) return "formula 1";
         if (value.contains("afresh")) return "afresh";
         if (value.contains("dinoshake")) return "dinoshake";
         if (value.contains("protein powder")) return "protein powder";
         if (value.contains("shake mate") || value.contains("shakemate")) return "shakemate";
+        if (value.contains("male factor")) return "male factor";
+        if (value.contains("woman s choice") || value.contains("womans choice")) return "womans choice";
+        if (value.contains("brain health")) return "brain health";
+        if (value.contains("immune health")) return "immune health";
         if (value.contains("liftoff")) return "liftoff";
+        if (value.contains("h24 hydrate")) return "h24 hydrate";
+        if (value.contains("h24 rebuild")) return "h24 rebuild strength";
         if (value.contains("skin booster")) return "skin booster";
-        if (value.contains("aloe concentrate")) return "aloe concentrate";
-        if (value.contains("active fiber complex")) return "active fiber complex";
+        if (value.contains("facial cleanser")) return "facial cleanser";
+        if (value.contains("facial toner")) return "facial toner";
+        if (value.contains("facial serum")) return "facial serum";
+        if (value.contains("moisturizer")) return "moisturizer";
         if (value.contains("activated fiber")) return "activated fiber";
+        if (value.contains("active fiber complex")) return "active fiber complex";
+        if (value.contains("aloe plus")) return "aloe plus";
+        if (value.contains("aloe concentrate")) return "aloe concentrate";
+        if (value.contains("simply probiotic")) return "simply probiotic";
+        if (value.contains("triphala")) return "triphala";
+        if (value.contains("calcium")) return "calcium";
+        if (value.contains("joint support")) return "joint support";
+        if (value.contains("niteworks")) return "niteworks";
+        if (value.contains("herbalifeline")) return "herbalifeline";
+        if (value.contains("beta heart")) return "beta heart";
+        if (value.contains("multivitamin mineral")) return "multivitamin mineral herbal";
+        if (value.contains("cell activator")) return "cell activator";
+        if (value.contains("cell u loss")) return "cell u loss";
+        if (value.contains("herbal control")) return "herbal control";
+        if (value.contains("ocular defense")) return "ocular defense";
+        if (value.contains("sleep enhance")) return "sleep enhance";
 
         Set<String> generic = coreTokens(value, true);
         if (generic.isEmpty()) return "";
+
         List<String> sorted = new ArrayList<>(generic);
         Collections.sort(sorted);
+
         StringBuilder builder = new StringBuilder();
         for (String token : sorted) {
             if (builder.length() > 0) builder.append(' ');
@@ -525,12 +659,40 @@ public final class SmartCompanyPriceMatcher {
                 .replace("activated fibre", "activated fiber")
                 .replace("active fibre", "active fiber")
                 .replace("ocular defence", "ocular defense")
-                .replace("dino shake", "dinoshake");
+                .replace("dino shake", "dinoshake")
+                .replace("multivitamin mineral and herbal tablets plus", "multivitamin mineral herbal")
+                .replace("multivitamin mineral and herbal", "multivitamin mineral herbal");
 
         return normalized
                 .replaceAll("[^a-z0-9]+", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
+    }
+
+    private static String normalizeCategory(String value) {
+        String category = safe(value)
+                .toUpperCase(Locale.US)
+                .replace('’', '\'')
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        if (category.contains("WEIGHT MANAGEMENT")) return "WEIGHT MANAGEMENT";
+        if (category.contains("MEN'S HEALTH")) return "MEN'S HEALTH";
+        if (category.contains("WOMEN'S HEALTH")) return "WOMEN'S HEALTH";
+        if (category.contains("BRAIN HEALTH")) return "BRAIN HEALTH";
+        if (category.contains("IMMUNE HEALTH")) return "IMMUNE HEALTH";
+        if (category.contains("ENERGY")) return "ENERGY PRODUCTS";
+        if (category.contains("SPORTS")) return "SPORTS NUTRITION";
+        if (category.contains("CHILDREN")) return "CHILDREN'S HEALTH";
+        if (category.contains("DIGESTIVE")) return "DIGESTIVE HEALTH";
+        if (category.contains("BONE") || category.contains("JOINT")) return "BONE & JOINT HEALTH";
+        if (category.contains("CARDIOVASCULAR")) return "CARDIOVASCULAR HEALTH";
+        if (category.contains("ENHANCER")) return "ENHANCERS";
+        if (category.contains("EYE")) return "EYE HEALTH";
+        if (category.contains("SKIN")) return "SKIN HEALTH";
+        if (category.contains("SLEEP")) return "SLEEP SUPPORT";
+
+        return category;
     }
 
     private static String normalizeStock(String value) {
@@ -568,7 +730,11 @@ public final class SmartCompanyPriceMatcher {
         private final double score;
         private final String conflictMessage;
 
-        private MatchDecision(MergedCompanyPrice best, double score, String conflictMessage) {
+        private MatchDecision(
+                MergedCompanyPrice best,
+                double score,
+                String conflictMessage
+        ) {
             this.best = best;
             this.score = score;
             this.conflictMessage = conflictMessage;
@@ -578,6 +744,7 @@ public final class SmartCompanyPriceMatcher {
     private static class MergedCompanyPrice {
         private final String stockNo;
         private final String productName;
+        private final String category;
         private final double volumePoint;
         private final int fullPrice;
         private final int price15;
@@ -585,10 +752,12 @@ public final class SmartCompanyPriceMatcher {
         private final int price35;
         private final int price42;
         private final int price50;
+        private int variantCount = 1;
 
         private MergedCompanyPrice(
                 String stockNo,
                 String productName,
+                String category,
                 double volumePoint,
                 int fullPrice,
                 int price15,
@@ -599,6 +768,7 @@ public final class SmartCompanyPriceMatcher {
         ) {
             this.stockNo = stockNo;
             this.productName = productName;
+            this.category = category;
             this.volumePoint = volumePoint;
             this.fullPrice = fullPrice;
             this.price15 = price15;
@@ -606,6 +776,15 @@ public final class SmartCompanyPriceMatcher {
             this.price35 = price35;
             this.price42 = price42;
             this.price50 = price50;
+        }
+
+        private String priceSignature() {
+            return fullPrice
+                    + ":" + price15
+                    + ":" + price25
+                    + ":" + price35
+                    + ":" + price42
+                    + ":" + price50;
         }
 
         private boolean samePrices(MergedCompanyPrice other) {
