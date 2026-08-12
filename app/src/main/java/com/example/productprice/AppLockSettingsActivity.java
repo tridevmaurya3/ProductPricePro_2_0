@@ -338,10 +338,9 @@ public class AppLockSettingsActivity extends AppCompatActivity {
                 com.google.android.material.R.attr.textInputOutlinedStyle
         );
         layout.setHint(hint);
-        layout.setPadding(dp(20), dp(4), dp(20), 0);
         layout.addView(
                 input,
-                new TextInputLayout.LayoutParams(
+                new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
                 )
