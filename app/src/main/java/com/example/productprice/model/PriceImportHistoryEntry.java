@@ -8,6 +8,7 @@ public class PriceImportHistoryEntry {
     private final long importedAt;
     private final int productCount;
     private final boolean undoAvailable;
+    private final boolean undone;
 
     public PriceImportHistoryEntry(
             String operationId,
@@ -15,7 +16,8 @@ public class PriceImportHistoryEntry {
             String action,
             long importedAt,
             int productCount,
-            boolean undoAvailable
+            boolean undoAvailable,
+            boolean undone
     ) {
         this.operationId = safe(operationId);
         this.effectiveDate = safe(effectiveDate);
@@ -23,6 +25,7 @@ public class PriceImportHistoryEntry {
         this.importedAt = Math.max(0L, importedAt);
         this.productCount = Math.max(0, productCount);
         this.undoAvailable = undoAvailable;
+        this.undone = undone;
     }
 
     public String getOperationId() {
@@ -47,6 +50,10 @@ public class PriceImportHistoryEntry {
 
     public boolean isUndoAvailable() {
         return undoAvailable;
+    }
+
+    public boolean isUndone() {
+        return undone;
     }
 
     public String getEffectiveDateLabel() {
