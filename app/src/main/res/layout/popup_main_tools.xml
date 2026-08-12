@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="300dp"
+    android:layout_height="wrap_content"
+    app:cardBackgroundColor="#FCFFFC"
+    app:cardCornerRadius="18dp"
+    app:cardElevation="8dp"
+    app:strokeColor="#CFE1D3"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tools &amp; Management"
+            android:textColor="#145A2B"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Manage app data without crowding the dashboard"
+            android:textColor="#607064"
+            android:textSize="10sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menu_products"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Products"
+                android:textAllCaps="false"
+                android:textColor="#0F7A32"
+                android:textSize="11sp"
+                app:backgroundTint="#EAF7EE"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_products"
+                app:iconPadding="4dp"
+                app:iconSize="16dp"
+                app:iconTint="#0F7A32" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menu_categories"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Categories"
+                android:textAllCaps="false"
+                android:textColor="#6A5400"
+                android:textSize="11sp"
+                app:backgroundTint="#FFF7D6"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_category"
+                app:iconPadding="4dp"
+                app:iconSize="16dp"
+                app:iconTint="#6A5400" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menu_price_update"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Price Update"
+                android:textAllCaps="false"
+                android:textColor="#0F6CBD"
+                android:textSize="11sp"
+                app:backgroundTint="#EAF3FB"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_price_update"
+                app:iconPadding="4dp"
+                app:iconSize="16dp"
+                app:iconTint="#0F6CBD" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menu_customers"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Customers"
+                android:textAllCaps="false"
+                android:textColor="#6C3D8C"
+                android:textSize="11sp"
+                app:backgroundTint="#F5ECFA"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_customer"
+                app:iconPadding="4dp"
+                app:iconSize="16dp"
+                app:iconTint="#6C3D8C" />
+
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/menu_saved_quotations"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="7dp"
+            android:text="Saved Quotations"
+            android:textAllCaps="false"
+            android:textColor="#315F83"
+            android:textSize="11sp"
+            app:backgroundTint="#EEF6FD"
+            app:cornerRadius="12dp"
+            app:icon="@drawable/ic_saved_quotations"
+            app:iconGravity="textStart"
+            app:iconPadding="6dp"
+            app:iconSize="16dp"
+            app:iconTint="#315F83" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menu_security"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Security"
+                android:textAllCaps="false"
+                android:textColor="#8A3C28"
+                android:textSize="11sp"
+                app:backgroundTint="#FFF0EA"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_lock"
+                app:iconPadding="4dp"
+                app:iconSize="16dp"
+                app:iconTint="#8A3C28" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/menu_profile"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Profile"
+                android:textAllCaps="false"
+                android:textColor="#0F7A32"
+                android:textSize="11sp"
+                app:backgroundTint="#EDF8F0"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_profile"
+                app:iconPadding="4dp"
+                app:iconSize="16dp"
+                app:iconTint="#0F7A32" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>
