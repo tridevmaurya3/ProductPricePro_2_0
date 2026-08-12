@@ -270,6 +270,25 @@ public class OfficialPdfCatalogActivity extends AppCompatActivity {
         );
     }
 
+    private void showFailure(Exception exception) {
+        setBusy(false);
+        catalogResult = null;
+        resultCard.setVisibility(View.VISIBLE);
+        resultTitle.setText("PDF analysis failed");
+        resultSummary.setText(errorMessage(exception));
+        categorySummary.setText("");
+        warningText.setVisibility(View.GONE);
+        reviewReplaceButton.setVisibility(View.GONE);
+        selectionText.setText("Could not analyze the selected PDFs");
+        associateStatus.setText("Could not validate");
+        preferredStatus.setText("Could not validate");
+        Toast.makeText(
+                this,
+                "PDF analysis failed: " + errorMessage(exception),
+                Toast.LENGTH_LONG
+        ).show();
+    }
+
     private void showCatalogResult(
             Validation validation,
             OfficialCatalogBuildResult built
@@ -444,7 +463,6 @@ public class OfficialPdfCatalogActivity extends AppCompatActivity {
                                 built.getEffectiveDate()
                         );
 
-                // Old price-import history belongs to the deleted legacy IDs.
                 getSharedPreferences("official_price_import_audit", MODE_PRIVATE)
                         .edit()
                         .clear()
@@ -524,6 +542,7 @@ public class OfficialPdfCatalogActivity extends AppCompatActivity {
     private void setBusy(boolean busy) {
         selectButton.setEnabled(!busy);
         manualToolsButton.setEnabled(!busy);
+        reviewReplaceButton.setEnabled(!busy);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
     }
 
