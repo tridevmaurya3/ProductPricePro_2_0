@@ -6,8 +6,10 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -16,11 +18,14 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.example.productprice.data.CompanyProductMappingStore;
 import com.example.productprice.data.OfficialPriceImportRepository;
 import com.example.productprice.data.ProductDbHelper;
 import com.example.productprice.model.CompanyPriceDocument;
 import com.example.productprice.model.CompanyPriceRow;
+import com.example.productprice.model.CompanyProductMapping;
 import com.example.productprice.model.OfficialPriceUpdate;
+import com.example.productprice.model.Product;
 import com.example.productprice.model.SmartPriceImportPlan;
 import com.example.productprice.util.CompanyPricePdfParser;
 import com.example.productprice.util.SmartCompanyPriceMatcher;
@@ -45,6 +50,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
 
     private ProductDbHelper db;
     private OfficialPriceImportRepository officialPriceImportRepository;
+    private CompanyProductMappingStore mappingStore;
 
     private AutoCompleteTextView categoryDropdown;
     private AutoCompleteTextView roundingDropdown;
@@ -60,6 +66,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
 
     private MaterialButton selectCompanyPdfsButton;
     private MaterialButton analyzeCompanyPdfsButton;
+    private MaterialButton mapUnmatchedButton;
 
     private TextView pdfSelectionSummaryText;
     private TextView associatePdfStatusText;
@@ -73,12 +80,12 @@ public class PriceUpdateActivity extends AppCompatActivity {
 
     private final List<Uri> selectedCompanyPdfUris = new ArrayList<>();
     private final List<String> selectedCompanyPdfNames = new ArrayList<>();
-
     private final ExecutorService pdfExecutor = Executors.newSingleThreadExecutor();
 
     private CompanyPriceDocument associateDocument;
     private CompanyPriceDocument preferredCustomerDocument;
     private SmartPriceImportPlan latestImportPlan;
+    private PdfValidationResult latestValidationResult;
 
     private final ActivityResultLauncher<String[]> pdfPickerLauncher =
             registerForActivityResult(
@@ -94,6 +101,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
         db = ProductDbHelper.getInstance(this);
         db.initialize();
         officialPriceImportRepository = new OfficialPriceImportRepository(db);
+        mappingStore = new CompanyProductMappingStore(this);
 
         bindViews();
         setupDropdowns();
@@ -131,6 +139,35 @@ public class PriceUpdateActivity extends AppCompatActivity {
         pdfWarningsText = findViewById(R.id.text_pdf_analysis_warnings);
         pdfAnalysisCard = findViewById(R.id.card_pdf_analysis);
         pdfAnalysisProgress = findViewById(R.id.progress_pdf_analysis);
+
+        createPermanentMappingButton();
+    }
+
+    private void createPermanentMappingButton() {
+        ViewGroup parent = pdfWarningsText.getParent() instanceof ViewGroup
+                ? (ViewGroup) pdfWarningsText.getParent()
+                : null;
+
+        if (parent == null) {
+            return;
+        }
+
+        mapUnmatchedButton = new MaterialButton(this);
+        mapUnmatchedButton.setText("Link Unmatched Products");
+        mapUnmatchedButton.setTextAllCaps(false);
+        mapUnmatchedButton.setVisibility(View.GONE);
+        mapUnmatchedButton.setContentDescription(
+                "Link unmatched app products to official company products"
+        );
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(44)
+        );
+        params.topMargin = dp(8);
+        mapUnmatchedButton.setLayoutParams(params);
+
+        parent.addView(mapUnmatchedButton);
     }
 
     private void setupDropdowns() {
@@ -180,6 +217,12 @@ public class PriceUpdateActivity extends AppCompatActivity {
                 }
         );
 
+        if (mapUnmatchedButton != null) {
+            mapUnmatchedButton.setOnClickListener(
+                    view -> showUnmatchedProductDialog()
+            );
+        }
+
         findViewById(R.id.button_apply_price_change).setOnClickListener(
                 view -> confirmScalePrices()
         );
@@ -203,7 +246,9 @@ public class PriceUpdateActivity extends AppCompatActivity {
         associateDocument = null;
         preferredCustomerDocument = null;
         latestImportPlan = null;
+        latestValidationResult = null;
         pdfAnalysisCard.setVisibility(View.GONE);
+        setMappingButtonVisible(false, 0);
 
         if (uris == null || uris.isEmpty()) {
             resetPdfImportState();
@@ -234,7 +279,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                 );
             } catch (Exception ignored) {
-                // Picker permission remains valid for the current session.
+                // The picker permission is still sufficient for this session.
             }
         }
 
@@ -254,6 +299,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
         associateDocument = null;
         preferredCustomerDocument = null;
         latestImportPlan = null;
+        latestValidationResult = null;
         selectedCompanyPdfUris.clear();
         selectedCompanyPdfNames.clear();
 
@@ -264,6 +310,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
         analyzeCompanyPdfsButton.setEnabled(false);
         pdfAnalysisProgress.setVisibility(View.GONE);
         pdfAnalysisCard.setVisibility(View.GONE);
+        setMappingButtonVisible(false, 0);
     }
 
     private void analyzeSelectedCompanyPdfs() {
@@ -277,6 +324,8 @@ public class PriceUpdateActivity extends AppCompatActivity {
         }
 
         latestImportPlan = null;
+        latestValidationResult = null;
+        setMappingButtonVisible(false, 0);
         setPdfAnalysisBusy(true);
 
         Uri firstUri = selectedCompanyPdfUris.get(0);
@@ -316,7 +365,8 @@ public class PriceUpdateActivity extends AppCompatActivity {
                             db.getAllProducts(true),
                             validationResult.associateDocument,
                             validationResult.preferredDocument,
-                            validationResult.effectiveDate
+                            validationResult.effectiveDate,
+                            mappingStore.getAllMappings()
                     );
                 }
 
@@ -483,6 +533,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
     private void showPdfValidationResult(PdfValidationResult result) {
         setPdfAnalysisBusy(false);
 
+        latestValidationResult = result;
         associateDocument = result.associateDocument;
         preferredCustomerDocument = result.preferredDocument;
         latestImportPlan = result.importPlan;
@@ -527,6 +578,11 @@ public class PriceUpdateActivity extends AppCompatActivity {
             int unchanged = latestImportPlan.getUnchangedCount();
             int unmatched = latestImportPlan.getUnmatchedProducts().size();
             int matchingConflicts = latestImportPlan.getConflicts().size();
+            int rememberedMappings = mappingStore.getCount();
+
+            String rememberedText = rememberedMappings > 0
+                    ? " • " + rememberedMappings + " remembered mapping(s)"
+                    : "";
 
             pdfCrosscheckText.setText(
                     "Validated • "
@@ -540,14 +596,17 @@ public class PriceUpdateActivity extends AppCompatActivity {
                             + " unchanged • "
                             + unmatched
                             + " unmatched"
+                            + rememberedText
             );
 
             if (matchingConflicts > 0) {
                 messages.addAll(latestImportPlan.getConflicts());
-                pdfSelectionSummaryText.setText("PDFs valid • product matching needs attention");
+                pdfSelectionSummaryText.setText(
+                        "PDFs valid • product matching needs attention"
+                );
                 analyzeCompanyPdfsButton.setText("Re-analyze PDFs");
                 analyzeCompanyPdfsButton.setEnabled(true);
-                latestImportPlan = null;
+                setMappingButtonVisible(false, 0);
 
             } else if (changed > 0) {
                 pdfSelectionSummaryText.setText(
@@ -557,17 +616,23 @@ public class PriceUpdateActivity extends AppCompatActivity {
                         "Review & Apply " + changed + " Updates"
                 );
                 analyzeCompanyPdfsButton.setEnabled(true);
+                setMappingButtonVisible(unmatched > 0, unmatched);
 
             } else {
-                pdfSelectionSummaryText.setText("Matched prices are already up to date");
+                pdfSelectionSummaryText.setText(
+                        unmatched > 0
+                                ? "Matched prices are current • link remaining products"
+                                : "Matched prices are already up to date"
+                );
                 analyzeCompanyPdfsButton.setText("Prices Already Up to Date");
                 analyzeCompanyPdfsButton.setEnabled(false);
+                setMappingButtonVisible(unmatched > 0, unmatched);
             }
 
             if (unmatched > 0) {
                 messages.add(
                         unmatched
-                                + " app product(s) were not matched with enough confidence and will not be changed."
+                                + " app product(s) need a one-time link. Once linked, the app will remember that mapping for future yearly PDFs."
                 );
             }
 
@@ -586,6 +651,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
             pdfSelectionSummaryText.setText("PDF validation needs attention");
             analyzeCompanyPdfsButton.setText("Re-analyze PDFs");
             analyzeCompanyPdfsButton.setEnabled(true);
+            setMappingButtonVisible(false, 0);
         }
 
         if (messages.isEmpty()) {
@@ -594,6 +660,256 @@ public class PriceUpdateActivity extends AppCompatActivity {
         } else {
             pdfWarningsText.setText(buildBulletText(messages));
             pdfWarningsText.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void showUnmatchedProductDialog() {
+        if (latestImportPlan == null
+                || associateDocument == null
+                || preferredCustomerDocument == null) {
+            Toast.makeText(
+                    this,
+                    "Analyze both PDFs first",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        List<String> unmatchedProducts = latestImportPlan.getUnmatchedProducts();
+        if (unmatchedProducts.isEmpty()) {
+            Toast.makeText(
+                    this,
+                    "There are no unmatched products",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        String[] items = unmatchedProducts.toArray(new String[0]);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Link Unmatched Product")
+                .setMessage(
+                        "Choose an app product. You will link it once to the correct official company product group."
+                )
+                .setItems(
+                        items,
+                        (dialog, which) -> {
+                            if (which < 0 || which >= items.length) {
+                                return;
+                            }
+
+                            Product product = findExactActiveProduct(items[which]);
+                            if (product == null) {
+                                Toast.makeText(
+                                        this,
+                                        "App product was not found",
+                                        Toast.LENGTH_LONG
+                                ).show();
+                                return;
+                            }
+
+                            showMappingCandidateDialog(product);
+                        }
+                )
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showMappingCandidateDialog(Product product) {
+        List<SmartCompanyPriceMatcher.MappingCandidate> candidates =
+                SmartCompanyPriceMatcher.getMappingCandidates(
+                        product,
+                        associateDocument,
+                        preferredCustomerDocument
+                );
+
+        if (candidates.isEmpty()) {
+            Toast.makeText(
+                    this,
+                    "No safe official product groups were available",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        String[] labels = new String[candidates.size()];
+        for (int index = 0; index < candidates.size(); index++) {
+            labels[index] = buildCandidateLabel(candidates.get(index));
+        }
+
+        CompanyProductMapping existing = mappingStore.get(product);
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
+                .setTitle("Link: " + product.getName())
+                .setMessage(
+                        "Select the correct official product. Same-price flavour groups are shown as one logical option."
+                )
+                .setItems(
+                        labels,
+                        (dialog, which) -> {
+                            if (which >= 0 && which < candidates.size()) {
+                                confirmRememberMapping(
+                                        product,
+                                        candidates.get(which)
+                                );
+                            }
+                        }
+                )
+                .setNegativeButton("Cancel", null);
+
+        if (existing != null) {
+            builder.setNeutralButton(
+                    "Remove Saved Link",
+                    (dialog, which) -> {
+                        mappingStore.remove(product);
+                        Toast.makeText(
+                                this,
+                                "Saved mapping removed",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                        rebuildPlanFromCurrentPdfs();
+                    }
+            );
+        }
+
+        builder.show();
+    }
+
+    private void confirmRememberMapping(
+            Product product,
+            SmartCompanyPriceMatcher.MappingCandidate candidate
+    ) {
+        StringBuilder message = new StringBuilder();
+        message.append("APP PRODUCT\n")
+                .append(product.getName())
+                .append("\n\nOFFICIAL PRODUCT\n")
+                .append(candidate.getCompanyProductName())
+                .append("\n")
+                .append(candidate.getCategory())
+                .append(" • Stock ")
+                .append(candidate.getStockNo());
+
+        if (candidate.getVariantCount() > 1) {
+            message.append("\n")
+                    .append(candidate.getVariantCount())
+                    .append(" same-price flavour variants grouped together");
+        }
+
+        message.append("\n\nFull ")
+                .append(formatRupees(candidate.getFullPrice()))
+                .append(" • @15 ")
+                .append(formatRupees(candidate.getPrice15()))
+                .append(" • @25 ")
+                .append(formatRupees(candidate.getPrice25()))
+                .append("\n@35 ")
+                .append(formatRupees(candidate.getPrice35()))
+                .append(" • @42 ")
+                .append(formatRupees(candidate.getPrice42()))
+                .append(" • @50 ")
+                .append(formatRupees(candidate.getPrice50()))
+                .append("\n\nThis link will be remembered for future yearly price PDFs. You can replace it later by linking the product again.");
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Remember This Product Link?")
+                .setMessage(message.toString())
+                .setNegativeButton("Back", null)
+                .setPositiveButton(
+                        "Remember Link",
+                        (dialog, which) -> {
+                            mappingStore.save(
+                                    product,
+                                    candidate.getCompanyGroupKey(),
+                                    candidate.getCompanyProductName(),
+                                    candidate.getStockNo()
+                            );
+
+                            Toast.makeText(
+                                    this,
+                                    "Permanent mapping saved for " + product.getName(),
+                                    Toast.LENGTH_LONG
+                            ).show();
+
+                            rebuildPlanFromCurrentPdfs();
+                        }
+                )
+                .show();
+    }
+
+    private void rebuildPlanFromCurrentPdfs() {
+        if (latestValidationResult == null
+                || associateDocument == null
+                || preferredCustomerDocument == null) {
+            return;
+        }
+
+        latestValidationResult.importPlan = SmartCompanyPriceMatcher.buildPlan(
+                db.getAllProducts(true),
+                associateDocument,
+                preferredCustomerDocument,
+                latestValidationResult.effectiveDate,
+                mappingStore.getAllMappings()
+        );
+
+        showPdfValidationResult(latestValidationResult);
+    }
+
+    private Product findExactActiveProduct(String name) {
+        String target = cleanText(name);
+        if (target.isEmpty()) {
+            return null;
+        }
+
+        for (Product product : db.getAllProducts(true)) {
+            if (product != null
+                    && target.equalsIgnoreCase(cleanText(product.getName()))) {
+                return product;
+            }
+        }
+
+        return null;
+    }
+
+    private String buildCandidateLabel(
+            SmartCompanyPriceMatcher.MappingCandidate candidate
+    ) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(candidate.getCompanyProductName());
+
+        if (candidate.getVariantCount() > 1) {
+            builder.append("  •  ")
+                    .append(candidate.getVariantCount())
+                    .append(" flavours");
+        }
+
+        builder.append("\n")
+                .append(candidate.getCategory())
+                .append("  •  Stock ")
+                .append(candidate.getStockNo())
+                .append("\nFull ")
+                .append(formatRupees(candidate.getFullPrice()))
+                .append("  •  @15 ")
+                .append(formatRupees(candidate.getPrice15()))
+                .append("  •  @25 ")
+                .append(formatRupees(candidate.getPrice25()))
+                .append("  •  @35 ")
+                .append(formatRupees(candidate.getPrice35()));
+
+        return builder.toString();
+    }
+
+    private void setMappingButtonVisible(boolean visible, int unmatchedCount) {
+        if (mapUnmatchedButton == null) {
+            return;
+        }
+
+        if (visible && unmatchedCount > 0) {
+            mapUnmatchedButton.setText(
+                    "Link " + unmatchedCount + " Unmatched Product"
+                            + (unmatchedCount == 1 ? "" : "s")
+            );
+            mapUnmatchedButton.setVisibility(View.VISIBLE);
+        } else {
+            mapUnmatchedButton.setVisibility(View.GONE);
         }
     }
 
@@ -698,7 +1014,9 @@ public class PriceUpdateActivity extends AppCompatActivity {
             }
         }
 
-        preview.append("\n\nOnly the six price columns will change. VP, product name, category and active status stay untouched. A full undo snapshot will be saved first.");
+        preview.append(
+                "\n\nOnly the six price columns will change. VP, product name, category and active status stay untouched. A full undo snapshot will be saved first."
+        );
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle("Review Official Price Update")
@@ -720,6 +1038,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
         }
 
         setPdfAnalysisBusy(true);
+        setMappingButtonVisible(false, 0);
         pdfSelectionSummaryText.setText("Saving official company prices safely…");
 
         pdfExecutor.execute(() -> {
@@ -753,6 +1072,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
                         );
                         pdfWarningsText.setVisibility(View.GONE);
                         latestImportPlan = null;
+                        latestValidationResult = null;
                         analyzeCompanyPdfsButton.setText("Analyze PDFs Again");
                         analyzeCompanyPdfsButton.setEnabled(true);
 
@@ -786,6 +1106,8 @@ public class PriceUpdateActivity extends AppCompatActivity {
         associateDocument = null;
         preferredCustomerDocument = null;
         latestImportPlan = null;
+        latestValidationResult = null;
+        setMappingButtonVisible(false, 0);
 
         pdfAnalysisCard.setVisibility(View.VISIBLE);
         associatePdfStatusText.setText("Could not validate");
@@ -1046,6 +1368,12 @@ public class PriceUpdateActivity extends AppCompatActivity {
         } catch (Exception exception) {
             return fallback;
         }
+    }
+
+    private int dp(int value) {
+        return Math.round(
+                value * getResources().getDisplayMetrics().density
+        );
     }
 
     private static class CrossCheckResult {
