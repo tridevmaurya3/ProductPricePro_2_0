@@ -24,11 +24,11 @@ import java.util.regex.Pattern;
 /**
  * Reads the two official company price-list PDFs.
  *
- * Important: the official PDFs frequently show several flavour Stock Nos. with
- * one shared price cell. PDF text extraction therefore produces several product
- * lines without prices and only one line with the numeric price columns. This
- * parser reconstructs those shared-price groups so a simplified app product
- * such as "Formula 1-500 gms" can safely match any of the equivalent flavours.
+ * The company PDFs frequently show several flavour Stock Nos. with one shared
+ * price cell. This parser reconstructs those shared-price groups and also gives
+ * every parsed row a logical product category. Category inference is primarily
+ * product-name based because PDF multi-column extraction can move section
+ * headings away from the rows they visually belong to.
  */
 public final class CompanyPricePdfParser {
 
@@ -178,6 +178,7 @@ public final class CompanyPricePdfParser {
 
         List<IdentityRow> pendingIdentityRows = new ArrayList<>();
         CompanyPriceRow previousPricedRow = null;
+        String currentSection = "";
 
         String[] lines = text.split("\\r?\\n");
         for (String rawLine : lines) {
@@ -191,6 +192,7 @@ public final class CompanyPricePdfParser {
                 flushPendingToPrevious(rows, pendingIdentityRows, previousPricedRow);
                 pendingIdentityRows.clear();
                 previousPricedRow = null;
+                currentSection = normalizeSectionCategory(line);
                 continue;
             }
 
@@ -198,7 +200,12 @@ public final class CompanyPricePdfParser {
                 continue;
             }
 
-            CompanyPriceRow fullRow = parseFullPriceRow(line, documentType);
+            CompanyPriceRow fullRow = parseFullPriceRow(
+                    line,
+                    documentType,
+                    currentSection
+            );
+
             if (fullRow != null) {
                 flushPendingBetweenPriceRows(
                         rows,
@@ -213,7 +220,7 @@ public final class CompanyPricePdfParser {
                 continue;
             }
 
-            IdentityRow identityRow = parseIdentityOnlyRow(line);
+            IdentityRow identityRow = parseIdentityOnlyRow(line, currentSection);
             if (identityRow != null) {
                 pendingIdentityRows.add(identityRow);
             }
@@ -225,7 +232,8 @@ public final class CompanyPricePdfParser {
 
     private static CompanyPriceRow parseFullPriceRow(
             String line,
-            CompanyPriceDocument.DocumentType documentType
+            CompanyPriceDocument.DocumentType documentType,
+            String currentSection
     ) {
         Matcher rowMatcher = STOCK_ROW_PATTERN.matcher(line);
         if (!rowMatcher.matches()) {
@@ -258,6 +266,7 @@ public final class CompanyPricePdfParser {
         CompanyPriceRow row = new CompanyPriceRow();
         row.setStockNo(stockNo);
         row.setProductName(productName);
+        row.setCategory(inferCategory(productName, currentSection));
         row.setRawLine(line);
 
         if (documentType == CompanyPriceDocument.DocumentType.ASSOCIATE) {
@@ -269,7 +278,10 @@ public final class CompanyPricePdfParser {
         return isPlausibleProductRow(row) ? row : null;
     }
 
-    private static IdentityRow parseIdentityOnlyRow(String line) {
+    private static IdentityRow parseIdentityOnlyRow(
+            String line,
+            String currentSection
+    ) {
         Matcher rowMatcher = STOCK_ROW_PATTERN.matcher(line);
         if (!rowMatcher.matches()) {
             return null;
@@ -278,26 +290,18 @@ public final class CompanyPricePdfParser {
         String stockNo = rowMatcher.group(1).trim();
         String body = cleanupProductName(rowMatcher.group(2));
 
-        if (body.isEmpty() || looksLikeHeaderProductName(body)) {
+        if (body.isEmpty() || looksLikeHeaderProductName(body) || body.length() < 3) {
             return null;
         }
 
-        // Reject obvious non-product numeric fragments.
-        if (body.length() < 3) {
-            return null;
-        }
-
-        return new IdentityRow(stockNo, body, line);
+        return new IdentityRow(
+                stockNo,
+                body,
+                inferCategory(body, currentSection),
+                line
+        );
     }
 
-    /**
-     * Handles the common PDF shape:
-     * priced row A -> several identity-only rows -> priced row B.
-     *
-     * If the product family is the same, pack size decides whether an identity
-     * row belongs to A or B. This is what correctly separates Formula 1 500 gms
-     * from Formula 1 750 gms while still allowing flavour rows to share prices.
-     */
     private static void flushPendingBetweenPriceRows(
             Map<String, CompanyPriceRow> rows,
             List<IdentityRow> pending,
@@ -357,8 +361,14 @@ public final class CompanyPricePdfParser {
             return current;
         }
 
-        PackCompatibility previousPack = comparePack(identity.productName, previous.getProductName());
-        PackCompatibility currentPack = comparePack(identity.productName, current.getProductName());
+        PackCompatibility previousPack = comparePack(
+                identity.productName,
+                previous.getProductName()
+        );
+        PackCompatibility currentPack = comparePack(
+                identity.productName,
+                current.getProductName()
+        );
 
         if (previousPack == PackCompatibility.MATCH
                 && currentPack != PackCompatibility.MATCH) {
@@ -374,8 +384,6 @@ public final class CompanyPricePdfParser {
             return current;
         }
 
-        // Same family + same apparent pack + different price signatures is not
-        // safe enough to auto-assign. Leave it unmatched rather than guessing.
         return null;
     }
 
@@ -386,6 +394,11 @@ public final class CompanyPricePdfParser {
         CompanyPriceRow row = new CompanyPriceRow();
         row.setStockNo(identity.stockNo);
         row.setProductName(identity.productName);
+        row.setCategory(
+                identity.category.isEmpty()
+                        ? priceSource.getCategory()
+                        : identity.category
+        );
         row.setRawLine(identity.rawLine + " [shared price group]");
         row.setVolumePoint(priceSource.getVolumePoint());
         row.setMrp(priceSource.getMrp());
@@ -440,7 +453,7 @@ public final class CompanyPricePdfParser {
     ) {
         row.setVolumePoint(tokens.get(start + 1).value);
         row.setMrp(roundedInt(tokens.get(start + 2).value));
-        // Company terminology: Bronze = 15%, Silver = 25%, Gold = 35%.
+        // Bronze = 15%, Silver = 25%, Gold = 35%.
         row.setPrice15(roundedInt(tokens.get(start + 3).value));
         row.setPrice25(roundedInt(tokens.get(start + 4).value));
         row.setPrice35(roundedInt(tokens.get(start + 5).value));
@@ -505,31 +518,117 @@ public final class CompanyPricePdfParser {
     }
 
     private static boolean isSectionBoundary(String line) {
-        String upper = line.toUpperCase(Locale.US);
-        return upper.equals("WEIGHT MANAGEMENT PRODUCTS")
-                || upper.equals("WEIGHT MANAGEMENT")
-                || upper.equals("ENERGY PRODUCTS")
-                || upper.equals("SPORTS NUTRITION")
-                || upper.equals("CHILDREN'S HEALTH")
-                || upper.equals("CHILDREN’S HEALTH")
-                || upper.equals("DIGESTIVE HEALTH")
-                || upper.equals("BONE & JOINT HEALTH")
-                || upper.equals("CARDIOVASCULAR HEALTH")
-                || upper.equals("ENHANCERS")
-                || upper.equals("EYE HEALTH")
-                || upper.equals("MEN'S HEALTH")
-                || upper.equals("MEN’S HEALTH")
-                || upper.equals("WOMEN'S HEALTH")
-                || upper.equals("WOMEN’S HEALTH")
-                || upper.equals("BRAIN HEALTH")
-                || upper.equals("VRITILIFE BRAIN HEALTH")
-                || upper.equals("IMMUNE HEALTH")
-                || upper.equals("VRITILIFE IMMUNE HEALTH")
-                || upper.equals("SKIN & BODY CARE")
-                || upper.equals("VRITILIFE SKIN & BODY CARE")
-                || upper.equals("SLEEP SUPPORT")
-                || upper.equals("APPLICATIONS")
-                || upper.equals("ART OF PROMOTION");
+        return !normalizeSectionCategory(line).isEmpty();
+    }
+
+    private static String normalizeSectionCategory(String line) {
+        String upper = cleanSpaces(line).toUpperCase(Locale.US);
+
+        if (upper.equals("WEIGHT MANAGEMENT PRODUCTS")
+                || upper.equals("WEIGHT MANAGEMENT")) {
+            return "WEIGHT MANAGEMENT";
+        }
+        if (upper.equals("ENERGY PRODUCTS")) return "ENERGY PRODUCTS";
+        if (upper.equals("SPORTS NUTRITION")) return "SPORTS NUTRITION";
+        if (upper.equals("CHILDREN'S HEALTH") || upper.equals("CHILDREN’S HEALTH")) {
+            return "CHILDREN'S HEALTH";
+        }
+        if (upper.equals("DIGESTIVE HEALTH")) return "DIGESTIVE HEALTH";
+        if (upper.equals("BONE & JOINT HEALTH")) return "BONE & JOINT HEALTH";
+        if (upper.equals("CARDIOVASCULAR HEALTH")) return "CARDIOVASCULAR HEALTH";
+        if (upper.equals("ENHANCERS")) return "ENHANCERS";
+        if (upper.equals("EYE HEALTH")) return "EYE HEALTH";
+        if (upper.equals("MEN'S HEALTH") || upper.equals("MEN’S HEALTH")) {
+            return "MEN'S HEALTH";
+        }
+        if (upper.equals("WOMEN'S HEALTH") || upper.equals("WOMEN’S HEALTH")) {
+            return "WOMEN'S HEALTH";
+        }
+        if (upper.equals("BRAIN HEALTH") || upper.equals("VRITILIFE BRAIN HEALTH")) {
+            return "BRAIN HEALTH";
+        }
+        if (upper.equals("IMMUNE HEALTH") || upper.equals("VRITILIFE IMMUNE HEALTH")) {
+            return "IMMUNE HEALTH";
+        }
+        if (upper.equals("SKIN & BODY CARE") || upper.equals("VRITILIFE SKIN & BODY CARE")) {
+            return "SKIN HEALTH";
+        }
+        if (upper.equals("SLEEP SUPPORT")) return "SLEEP SUPPORT";
+        if (upper.equals("APPLICATIONS")) return "APPLICATIONS";
+        if (upper.equals("ART OF PROMOTION")) return "ART OF PROMOTION";
+
+        return "";
+    }
+
+    private static String inferCategory(String productName, String sectionFallback) {
+        String name = normalizeProductKey(productName)
+                .replace("fibre", "fiber")
+                .replace("defence", "defense")
+                .replace("formula1", "formula 1")
+                .replace("formula-1", "formula 1");
+
+        if (containsAny(name, "formula 1", "protein powder", "shakemate", "shake mate")) {
+            return "WEIGHT MANAGEMENT";
+        }
+        if (containsAny(name, "male factor")) return "MEN'S HEALTH";
+        if (containsAny(name, "woman s choice", "womans choice")) return "WOMEN'S HEALTH";
+        if (containsAny(name, "brain health")) return "BRAIN HEALTH";
+        if (containsAny(name, "immune health")) return "IMMUNE HEALTH";
+        if (containsAny(name, "afresh", "liftoff")) return "ENERGY PRODUCTS";
+        if (containsAny(name, "h24 hydrate", "h24 rebuild")) return "SPORTS NUTRITION";
+        if (containsAny(name, "dinoshake", "dino shake")) return "CHILDREN'S HEALTH";
+        if (containsAny(
+                name,
+                "activated fiber",
+                "active fiber complex",
+                "aloe plus",
+                "aloe concentrate",
+                "simply probiotic",
+                "triphala"
+        )) {
+            return "DIGESTIVE HEALTH";
+        }
+        if (containsAny(name, "calcium", "joint support")) return "BONE & JOINT HEALTH";
+        if (containsAny(name, "niteworks", "herbalifeline", "beta heart")) {
+            return "CARDIOVASCULAR HEALTH";
+        }
+        if (containsAny(
+                name,
+                "multivitamin mineral",
+                "cell activator",
+                "cell u loss",
+                "herbal control"
+        )) {
+            return "ENHANCERS";
+        }
+        if (containsAny(name, "ocular defense")) return "EYE HEALTH";
+        if (containsAny(
+                name,
+                "skin booster",
+                "facial cleanser",
+                "facial toner",
+                "facial serum",
+                "moisturizer"
+        )) {
+            return "SKIN HEALTH";
+        }
+        if (containsAny(name, "sleep enhance")) return "SLEEP SUPPORT";
+
+        return cleanSpaces(sectionFallback);
+    }
+
+    private static boolean containsAny(String value, String... terms) {
+        String source = safe(value);
+        if (terms == null) {
+            return false;
+        }
+
+        for (String term : terms) {
+            if (term != null && !term.isEmpty() && source.contains(term)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean looksLikeHeaderProductName(String name) {
@@ -727,11 +826,18 @@ public final class CompanyPricePdfParser {
     private static class IdentityRow {
         private final String stockNo;
         private final String productName;
+        private final String category;
         private final String rawLine;
 
-        private IdentityRow(String stockNo, String productName, String rawLine) {
+        private IdentityRow(
+                String stockNo,
+                String productName,
+                String category,
+                String rawLine
+        ) {
             this.stockNo = stockNo;
             this.productName = productName;
+            this.category = category == null ? "" : category.trim();
             this.rawLine = rawLine;
         }
     }
