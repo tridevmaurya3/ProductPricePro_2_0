@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewParent;
 import android.view.WindowManager;
 
+import com.example.productprice.data.AppProfileStore;
 import com.example.productprice.security.AppLockManager;
 import com.example.productprice.ui.MainToolsPopup;
 import com.google.android.material.appbar.MaterialToolbar;
@@ -103,6 +104,14 @@ public class ProductPriceApplication extends Application
         if (toolbar == null) {
             return;
         }
+
+        AppProfileStore profileStore = new AppProfileStore(activity);
+        String organization = profileStore.getOrganization();
+        toolbar.setSubtitle(
+                organization.isEmpty()
+                        ? "Product Price Pro"
+                        : organization
+        );
 
         toolbar.setNavigationIcon(R.drawable.ic_menu);
         toolbar.setNavigationContentDescription("Open tools menu");
