@@ -42,6 +42,9 @@ dependencies {
     // Smart official company PDF price-list import.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
+    // Local app-lock biometric unlock.
+    implementation("androidx.biometric:biometric:1.1.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
