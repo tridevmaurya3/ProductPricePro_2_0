@@ -7,17 +7,26 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.PopupWindow;
+import android.widget.TextView;
 
 import com.example.productprice.AppLockSettingsActivity;
 import com.example.productprice.CategoryManagerActivity;
 import com.example.productprice.CustomerManagerActivity;
 import com.example.productprice.MainActivity;
+import com.example.productprice.PriceImportHistoryActivity;
 import com.example.productprice.PriceUpdateActivity;
 import com.example.productprice.ProductManagementActivity;
 import com.example.productprice.ProfileActivity;
 import com.example.productprice.R;
 import com.example.productprice.SavedQuotationsActivity;
+import com.example.productprice.data.PriceImportHistoryRepository;
+import com.example.productprice.data.ProductDbHelper;
+import com.example.productprice.model.PriceImportHistoryEntry;
 import com.google.android.material.appbar.MaterialToolbar;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public final class MainToolsPopup {
 
@@ -49,6 +58,8 @@ public final class MainToolsPopup {
         popupWindow.setElevation(dp(activity, 8));
         popupWindow.setAnimationStyle(android.R.style.Animation_Dialog);
 
+        bindPriceStatus(activity, content);
+
         bind(content, R.id.menu_products, () -> open(
                 activity,
                 popupWindow,
@@ -65,6 +76,12 @@ public final class MainToolsPopup {
                 activity,
                 popupWindow,
                 PriceUpdateActivity.class
+        ));
+
+        bind(content, R.id.menu_price_history, () -> open(
+                activity,
+                popupWindow,
+                PriceImportHistoryActivity.class
         ));
 
         bind(content, R.id.menu_customers, () -> open(
@@ -92,6 +109,54 @@ public final class MainToolsPopup {
         ));
 
         popupWindow.showAsDropDown(anchor, dp(activity, 8), -dp(activity, 2));
+    }
+
+    private static void bindPriceStatus(MainActivity activity, View content) {
+        TextView title = content.findViewById(R.id.text_menu_price_status_title);
+        TextView detail = content.findViewById(R.id.text_menu_price_status_detail);
+
+        if (title == null || detail == null) {
+            return;
+        }
+
+        try {
+            ProductDbHelper db = ProductDbHelper.getInstance(activity);
+            db.initialize();
+
+            PriceImportHistoryRepository repository =
+                    new PriceImportHistoryRepository(db);
+
+            PriceImportHistoryEntry latest =
+                    repository.getLatestOfficialPdfUpdate();
+
+            if (latest == null) {
+                title.setText("No official PDF import yet");
+                detail.setText("Price Update → select both official company PDFs");
+                return;
+            }
+
+            title.setText(latest.getEffectiveDateLabel());
+
+            String date = latest.getImportedAt() <= 0L
+                    ? "date not recorded"
+                    : new SimpleDateFormat(
+                            "dd MMM yyyy",
+                            Locale.getDefault()
+                    ).format(new Date(latest.getImportedAt()));
+
+            detail.setText(
+                    latest.getProductCount()
+                            + " products • "
+                            + date
+                            + (latest.isUndoAvailable()
+                            ? " • Undo available"
+                            : " • Applied")
+            );
+
+        } catch (Exception exception) {
+            title.setText("Official price status unavailable");
+            detail.setText("Open Price Update to refresh price data");
+        }
     }
 
     private static void bind(View root, int id, Runnable action) {
