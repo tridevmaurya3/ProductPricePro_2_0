@@ -19,10 +19,15 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Safely maps the user's intentionally simplified catalogue to the official
+ * company PDFs. The app can keep one logical item such as Formula 1-500 gms
+ * even when the PDF contains many flavour Stock Nos. with the same prices.
+ */
 public final class SmartCompanyPriceMatcher {
 
-    private static final double SAFE_MATCH_THRESHOLD = 0.60d;
-    private static final double AMBIGUITY_WINDOW = 0.05d;
+    private static final double SAFE_MATCH_THRESHOLD = 0.58d;
+    private static final double AMBIGUITY_WINDOW = 0.07d;
 
     private static final Pattern PACK_PATTERN = Pattern.compile(
             "(?i)(\\d+(?:\\.\\d+)?)\\s*(kg|gms|gm|grams|gram|g|ml|ltr|litre|litres|tablet|tablets|tab|tabs|capsule|capsules|caps|sachet|sachets|softgel|softgels)\\b"
@@ -30,11 +35,18 @@ public final class SmartCompanyPriceMatcher {
 
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
             "herbalife", "nutrition", "nutritional", "product", "products",
-            "powder", "mix", "flavour", "flavor", "drink", "instant",
+            "powder", "mix", "drink", "instant", "new", "plus",
             "tablet", "tablets", "tab", "tabs", "capsule", "capsules", "caps",
             "sachet", "sachets", "softgel", "softgels", "pack", "packs",
-            "g", "gm", "gms", "gram", "grams", "ml", "kg", "with", "and", "the",
-            "personalized", "new"
+            "g", "gm", "gms", "gram", "grams", "ml", "kg", "with", "and", "the"
+    ));
+
+    private static final Set<String> FLAVOUR_WORDS = new HashSet<>(Arrays.asList(
+            "vanilla", "chocolate", "chocolicious", "mango", "orange", "cream",
+            "strawberry", "kulfi", "banana", "caramel", "rose", "kheer", "paan",
+            "dates", "ginger", "elaichi", "lemon", "peach", "cinnamon", "kashmiri",
+            "kahwa", "tulsi", "basil", "watermelon", "unflavoured", "unflavored",
+            "original", "flavour", "flavor"
     ));
 
     private SmartCompanyPriceMatcher() {
@@ -195,12 +207,7 @@ public final class SmartCompanyPriceMatcher {
         List<ScoredCandidate> scored = new ArrayList<>();
 
         for (MergedCompanyPrice companyPrice : companyPrices) {
-            FamilyMatch familyMatch = evaluateFamilyMatch(product, companyPrice);
-            if (familyMatch.rejected) {
-                continue;
-            }
-
-            double score = scoreMatch(product, companyPrice, familyMatch);
+            double score = scoreMatch(product, companyPrice);
             if (score > 0d) {
                 scored.add(new ScoredCandidate(companyPrice, score));
             }
@@ -210,10 +217,7 @@ public final class SmartCompanyPriceMatcher {
             return new MatchDecision(null, 0d, null);
         }
 
-        Collections.sort(
-                scored,
-                (left, right) -> Double.compare(right.score, left.score)
-        );
+        Collections.sort(scored, (left, right) -> Double.compare(right.score, left.score));
 
         ScoredCandidate top = scored.get(0);
         if (top.score < SAFE_MATCH_THRESHOLD) {
@@ -233,118 +237,40 @@ public final class SmartCompanyPriceMatcher {
                     null,
                     top.score,
                     "Ambiguous company match for " + product.getName()
-                            + ". Multiple similar PDF product groups have different prices, so nothing was changed."
+                            + ". Similar PDF variants have different prices, so this product was left unchanged."
             );
         }
 
         return new MatchDecision(top.companyPrice, top.score, null);
     }
 
-    private static FamilyMatch evaluateFamilyMatch(
-            Product appProduct,
-            MergedCompanyPrice companyPrice
-    ) {
-        String appName = normalizeName(appProduct.getName());
-        String companyName = normalizeName(companyPrice.productName);
-
-        if (isFormulaOne(appName)) {
-            if (!isFormulaOne(companyName)) {
-                return FamilyMatch.reject();
-            }
-
-            PackCompatibility pack = comparePackSizes(
-                    appProduct.getName(),
-                    companyPrice.productName
-            );
-
-            if (pack == PackCompatibility.MISMATCH) {
-                return FamilyMatch.reject();
-            }
-
-            return FamilyMatch.preferred(0.30d, true);
-        }
-
-        if (isAfresh(appName)) {
-            if (!isAfresh(companyName)) {
-                return FamilyMatch.reject();
-            }
-
-            boolean appTulsi = containsAny(appName, "tulsi", "basil");
-            boolean companyTulsi = containsAny(companyName, "tulsi", "basil");
-
-            if (appTulsi != companyTulsi) {
-                return FamilyMatch.reject();
-            }
-
-            // The official price list uses merged price cells for the standard Afresh
-            // flavour group. The text extractor may attach that shared price to one
-            // representative flavour (for example Lemon) even though Kashmiri Kahwa
-            // is 40 gms. For a generic Afresh app product, family identity is therefore
-            // intentionally more important than the representative flavour/pack text.
-            return FamilyMatch.preferred(
-                    appTulsi ? 0.34d : 0.38d,
-                    true
-            );
-        }
-
-        if (isDinoshake(appName)) {
-            if (!isDinoshake(companyName)) {
-                return FamilyMatch.reject();
-            }
-
-            boolean appHasKnownFlavor = containsAny(
-                    appName,
-                    "chocolicious",
-                    "chocolate",
-                    "strawberry"
-            );
-
-            if (!appHasKnownFlavor) {
-                return FamilyMatch.preferred(0.30d, true);
-            }
-        }
-
-        return FamilyMatch.normal();
-    }
-
     private static double scoreMatch(
             Product appProduct,
-            MergedCompanyPrice companyPrice,
-            FamilyMatch familyMatch
+            MergedCompanyPrice companyPrice
     ) {
         String appNormalized = normalizeName(appProduct.getName());
         String companyNormalized = normalizeName(companyPrice.productName);
 
-        Set<String> appTokens = coreTokens(appNormalized);
-        Set<String> companyTokens = coreTokens(companyNormalized);
+        Set<String> appTokens = coreTokens(appNormalized, false);
+        Set<String> companyTokens = coreTokens(companyNormalized, false);
 
         if (appTokens.isEmpty() || companyTokens.isEmpty()) {
             return 0d;
         }
 
-        int intersection = 0;
-        for (String token : appTokens) {
-            if (companyTokens.contains(token)) {
-                intersection++;
+        double score = tokenSimilarity(appTokens, companyTokens) * 0.56d;
+
+        String appFamily = canonicalFamily(appNormalized);
+        String companyFamily = canonicalFamily(companyNormalized);
+
+        if (!appFamily.isEmpty() && appFamily.equals(companyFamily)) {
+            score += 0.24d;
+
+            if (!containsFlavour(appNormalized)) {
+                Set<String> appGeneric = coreTokens(appNormalized, true);
+                Set<String> companyGeneric = coreTokens(companyNormalized, true);
+                score += tokenSimilarity(appGeneric, companyGeneric) * 0.12d;
             }
-        }
-
-        double coverage = intersection / (double) appTokens.size();
-
-        Set<String> union = new HashSet<>(appTokens);
-        union.addAll(companyTokens);
-        double jaccard = union.isEmpty() ? 0d : intersection / (double) union.size();
-
-        double score = coverage * 0.52d + jaccard * 0.22d;
-        score += familyMatch.bonus;
-
-        String appCorePhrase = joinTokens(appTokens);
-        String companyCorePhrase = joinTokens(companyTokens);
-
-        if (!appCorePhrase.isEmpty()
-                && (companyCorePhrase.contains(appCorePhrase)
-                || appCorePhrase.contains(companyCorePhrase))) {
-            score += 0.10d;
         }
 
         PackCompatibility packCompatibility = comparePackSizes(
@@ -353,19 +279,18 @@ public final class SmartCompanyPriceMatcher {
         );
 
         if (packCompatibility == PackCompatibility.MATCH) {
-            score += 0.12d;
-        } else if (packCompatibility == PackCompatibility.MISMATCH
-                && !familyMatch.ignorePackMismatch) {
-            score -= 0.28d;
+            score += 0.16d;
+        } else if (packCompatibility == PackCompatibility.MISMATCH) {
+            score -= 0.34d;
         }
 
         double vp = appProduct.getVp();
         if (vp > 0d && companyPrice.volumePoint > 0d) {
             double difference = Math.abs(vp - companyPrice.volumePoint);
             if (difference <= 0.15d) {
-                score += 0.10d;
+                score += 0.12d;
             } else if (difference <= 1.0d) {
-                score += 0.06d;
+                score += 0.07d;
             } else if (difference <= 3.0d) {
                 score += 0.02d;
             }
@@ -376,10 +301,30 @@ public final class SmartCompanyPriceMatcher {
         if (!compactApp.isEmpty()
                 && (compactCompany.contains(compactApp)
                 || compactApp.contains(compactCompany))) {
-            score += 0.08d;
+            score += 0.06d;
         }
 
         return Math.max(0d, Math.min(1d, score));
+    }
+
+    private static double tokenSimilarity(Set<String> left, Set<String> right) {
+        if (left == null || right == null || left.isEmpty() || right.isEmpty()) {
+            return 0d;
+        }
+
+        int intersection = 0;
+        for (String token : left) {
+            if (right.contains(token)) {
+                intersection++;
+            }
+        }
+
+        double coverage = intersection / (double) left.size();
+        Set<String> union = new HashSet<>(left);
+        union.addAll(right);
+        double jaccard = union.isEmpty() ? 0d : intersection / (double) union.size();
+
+        return coverage * 0.72d + jaccard * 0.28d;
     }
 
     private static boolean hasDifferentPriceSets(List<ScoredCandidate> candidates) {
@@ -431,17 +376,13 @@ public final class SmartCompanyPriceMatcher {
 
         Matcher matcher = PACK_PATTERN.matcher(normalized);
         while (matcher.find()) {
-            String number = matcher.group(1);
-            String unit = matcher.group(2).toLowerCase(Locale.US);
-            unit = normalizeUnit(unit);
-            result.add(number + unit);
+            result.add(matcher.group(1) + normalizeUnit(matcher.group(2)));
         }
         return result;
     }
 
     private static String normalizeUnit(String unit) {
-        if (unit == null) return "";
-        String value = unit.toLowerCase(Locale.US);
+        String value = safe(unit).toLowerCase(Locale.US);
         if (value.equals("gms") || value.equals("gm") || value.equals("grams") || value.equals("gram")) return "g";
         if (value.equals("tablets") || value.equals("tablet") || value.equals("tabs")) return "tab";
         if (value.equals("capsules") || value.equals("capsule")) return "caps";
@@ -450,7 +391,7 @@ public final class SmartCompanyPriceMatcher {
         return value;
     }
 
-    private static Set<String> coreTokens(String normalizedName) {
+    private static Set<String> coreTokens(String normalizedName, boolean removeFlavours) {
         Set<String> tokens = new HashSet<>();
         if (normalizedName == null || normalizedName.trim().isEmpty()) {
             return tokens;
@@ -460,14 +401,30 @@ public final class SmartCompanyPriceMatcher {
             if (token.isEmpty() || STOP_WORDS.contains(token)) {
                 continue;
             }
+            if (removeFlavours && FLAVOUR_WORDS.contains(token)) {
+                continue;
+            }
             tokens.add(token);
         }
         return tokens;
     }
 
-    private static String joinTokens(Set<String> tokens) {
-        if (tokens == null || tokens.isEmpty()) return "";
-        List<String> sorted = new ArrayList<>(tokens);
+    private static String canonicalFamily(String normalizedName) {
+        String value = safe(normalizedName);
+        if (value.contains("formula 1")) return "formula 1";
+        if (value.contains("afresh")) return "afresh";
+        if (value.contains("dinoshake")) return "dinoshake";
+        if (value.contains("protein powder")) return "protein powder";
+        if (value.contains("shake mate") || value.contains("shakemate")) return "shakemate";
+        if (value.contains("liftoff")) return "liftoff";
+        if (value.contains("skin booster")) return "skin booster";
+        if (value.contains("aloe concentrate")) return "aloe concentrate";
+        if (value.contains("active fiber complex")) return "active fiber complex";
+        if (value.contains("activated fiber")) return "activated fiber";
+
+        Set<String> generic = coreTokens(value, true);
+        if (generic.isEmpty()) return "";
+        List<String> sorted = new ArrayList<>(generic);
         Collections.sort(sorted);
         StringBuilder builder = new StringBuilder();
         for (String token : sorted) {
@@ -475,6 +432,15 @@ public final class SmartCompanyPriceMatcher {
             builder.append(token);
         }
         return builder.toString();
+    }
+
+    private static boolean containsFlavour(String normalizedName) {
+        for (String token : safe(normalizedName).split("\\s+")) {
+            if (FLAVOUR_WORDS.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String normalizeName(String value) {
@@ -495,45 +461,17 @@ public final class SmartCompanyPriceMatcher {
                 .replace("nite works", "niteworks")
                 .replace("afresh energy drink mix", "afresh")
                 .replace("herbal aloe concentrate", "aloe concentrate")
+                .replace("personalized protein powder", "protein powder")
+                .replace("personalised protein powder", "protein powder")
                 .replace("activated fibre", "activated fiber")
                 .replace("active fibre", "active fiber")
                 .replace("ocular defence", "ocular defense")
-                .replace("unflavoured", "unflavored")
-                .replace("chocolicious", "chocolate");
+                .replace("dino shake", "dinoshake");
 
         return normalized
                 .replaceAll("[^a-z0-9]+", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
-    }
-
-    private static boolean isFormulaOne(String normalizedName) {
-        return normalizedName != null
-                && normalizedName.matches(".*\\bformula\\s+1\\b.*");
-    }
-
-    private static boolean isAfresh(String normalizedName) {
-        return normalizedName != null
-                && normalizedName.matches(".*\\bafresh\\b.*");
-    }
-
-    private static boolean isDinoshake(String normalizedName) {
-        return normalizedName != null
-                && normalizedName.replace(" ", "").contains("dinoshake");
-    }
-
-    private static boolean containsAny(String value, String... terms) {
-        if (value == null || terms == null) {
-            return false;
-        }
-
-        for (String term : terms) {
-            if (term != null && !term.isEmpty() && value.contains(term)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static String normalizeStock(String value) {
@@ -554,30 +492,6 @@ public final class SmartCompanyPriceMatcher {
         MATCH,
         MISMATCH,
         UNKNOWN
-    }
-
-    private static class FamilyMatch {
-        private final boolean rejected;
-        private final double bonus;
-        private final boolean ignorePackMismatch;
-
-        private FamilyMatch(boolean rejected, double bonus, boolean ignorePackMismatch) {
-            this.rejected = rejected;
-            this.bonus = bonus;
-            this.ignorePackMismatch = ignorePackMismatch;
-        }
-
-        private static FamilyMatch reject() {
-            return new FamilyMatch(true, 0d, false);
-        }
-
-        private static FamilyMatch normal() {
-            return new FamilyMatch(false, 0d, false);
-        }
-
-        private static FamilyMatch preferred(double bonus, boolean ignorePackMismatch) {
-            return new FamilyMatch(false, bonus, ignorePackMismatch);
-        }
     }
 
     private static class ScoredCandidate {
