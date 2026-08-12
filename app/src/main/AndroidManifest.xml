@@ -40,6 +40,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".PriceImportHistoryActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".SavedQuotationsActivity"
             android:exported="false" />
 
