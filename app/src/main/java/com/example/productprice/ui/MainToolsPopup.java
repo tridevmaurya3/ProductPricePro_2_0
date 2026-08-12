@@ -1,6 +1,8 @@
 package com.example.productprice.ui;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.LayoutInflater;
@@ -13,8 +15,8 @@ import com.example.productprice.AppLockSettingsActivity;
 import com.example.productprice.CategoryManagerActivity;
 import com.example.productprice.CustomerManagerActivity;
 import com.example.productprice.MainActivity;
+import com.example.productprice.OfficialPdfCatalogActivity;
 import com.example.productprice.PriceImportHistoryActivity;
-import com.example.productprice.PriceUpdateActivity;
 import com.example.productprice.ProductManagementActivity;
 import com.example.productprice.ProfileActivity;
 import com.example.productprice.R;
@@ -75,7 +77,7 @@ public final class MainToolsPopup {
         bind(content, R.id.menu_price_update, () -> open(
                 activity,
                 popupWindow,
-                PriceUpdateActivity.class
+                OfficialPdfCatalogActivity.class
         ));
 
         bind(content, R.id.menu_price_history, () -> open(
@@ -120,6 +122,38 @@ public final class MainToolsPopup {
         }
 
         try {
+            SharedPreferences smartPrefs = activity.getSharedPreferences(
+                    "smart_price_update",
+                    Context.MODE_PRIVATE
+            );
+
+            if (smartPrefs.getBoolean("official_full_catalog", false)) {
+                String effectiveDate = smartPrefs.getString("last_effective_date", "");
+                long importedAt = smartPrefs.getLong("last_imported_at", 0L);
+                int productCount = smartPrefs.getInt("last_updated_count", 0);
+                int categoryCount = smartPrefs.getInt("last_category_count", 0);
+
+                title.setText(
+                        effectiveDate == null || effectiveDate.trim().isEmpty()
+                                ? "Official PDF catalog active"
+                                : "Effective " + effectiveDate.trim()
+                );
+
+                String date = importedAt <= 0L
+                        ? "date not recorded"
+                        : new SimpleDateFormat(
+                                "dd MMM yyyy",
+                                Locale.getDefault()
+                        ).format(new Date(importedAt));
+
+                detail.setText(
+                        productCount + " products • "
+                                + categoryCount + " categories • "
+                                + date
+                );
+                return;
+            }
+
             ProductDbHelper db = ProductDbHelper.getInstance(activity);
             db.initialize();
 
@@ -130,7 +164,7 @@ public final class MainToolsPopup {
                     repository.getLatestOfficialPdfUpdate();
 
             if (latest == null) {
-                title.setText("No official PDF import yet");
+                title.setText("No official PDF catalog yet");
                 detail.setText("Price Update → select both official company PDFs");
                 return;
             }
