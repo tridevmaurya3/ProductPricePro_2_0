@@ -9,7 +9,6 @@ import com.example.productprice.model.SmartPriceImportPlan;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -34,7 +33,8 @@ public final class SmartCompanyPriceMatcher {
             "powder", "mix", "flavour", "flavor", "drink", "instant",
             "tablet", "tablets", "tab", "tabs", "capsule", "capsules", "caps",
             "sachet", "sachets", "softgel", "softgels", "pack", "packs",
-            "g", "gm", "gms", "gram", "grams", "ml", "kg", "with", "and", "the"
+            "g", "gm", "gms", "gram", "grams", "ml", "kg", "with", "and", "the",
+            "personalized", "new"
     ));
 
     private SmartCompanyPriceMatcher() {
@@ -195,7 +195,12 @@ public final class SmartCompanyPriceMatcher {
         List<ScoredCandidate> scored = new ArrayList<>();
 
         for (MergedCompanyPrice companyPrice : companyPrices) {
-            double score = scoreMatch(product, companyPrice);
+            FamilyMatch familyMatch = evaluateFamilyMatch(product, companyPrice);
+            if (familyMatch.rejected) {
+                continue;
+            }
+
+            double score = scoreMatch(product, companyPrice, familyMatch);
             if (score > 0d) {
                 scored.add(new ScoredCandidate(companyPrice, score));
             }
@@ -228,16 +233,84 @@ public final class SmartCompanyPriceMatcher {
                     null,
                     top.score,
                     "Ambiguous company match for " + product.getName()
-                            + ". Multiple similar PDF products have different prices, so nothing was changed."
+                            + ". Multiple similar PDF product groups have different prices, so nothing was changed."
             );
         }
 
         return new MatchDecision(top.companyPrice, top.score, null);
     }
 
-    private static double scoreMatch(
+    private static FamilyMatch evaluateFamilyMatch(
             Product appProduct,
             MergedCompanyPrice companyPrice
+    ) {
+        String appName = normalizeName(appProduct.getName());
+        String companyName = normalizeName(companyPrice.productName);
+
+        if (isFormulaOne(appName)) {
+            if (!isFormulaOne(companyName)) {
+                return FamilyMatch.reject();
+            }
+
+            PackCompatibility pack = comparePackSizes(
+                    appProduct.getName(),
+                    companyPrice.productName
+            );
+
+            if (pack == PackCompatibility.MISMATCH) {
+                return FamilyMatch.reject();
+            }
+
+            return FamilyMatch.preferred(0.30d, true);
+        }
+
+        if (isAfresh(appName)) {
+            if (!isAfresh(companyName)) {
+                return FamilyMatch.reject();
+            }
+
+            boolean appTulsi = containsAny(appName, "tulsi", "basil");
+            boolean companyTulsi = containsAny(companyName, "tulsi", "basil");
+
+            if (appTulsi != companyTulsi) {
+                return FamilyMatch.reject();
+            }
+
+            // The official price list uses merged price cells for the standard Afresh
+            // flavour group. The text extractor may attach that shared price to one
+            // representative flavour (for example Lemon) even though Kashmiri Kahwa
+            // is 40 gms. For a generic Afresh app product, family identity is therefore
+            // intentionally more important than the representative flavour/pack text.
+            return FamilyMatch.preferred(
+                    appTulsi ? 0.34d : 0.38d,
+                    true
+            );
+        }
+
+        if (isDinoshake(appName)) {
+            if (!isDinoshake(companyName)) {
+                return FamilyMatch.reject();
+            }
+
+            boolean appHasKnownFlavor = containsAny(
+                    appName,
+                    "chocolicious",
+                    "chocolate",
+                    "strawberry"
+            );
+
+            if (!appHasKnownFlavor) {
+                return FamilyMatch.preferred(0.30d, true);
+            }
+        }
+
+        return FamilyMatch.normal();
+    }
+
+    private static double scoreMatch(
+            Product appProduct,
+            MergedCompanyPrice companyPrice,
+            FamilyMatch familyMatch
     ) {
         String appNormalized = normalizeName(appProduct.getName());
         String companyNormalized = normalizeName(companyPrice.productName);
@@ -263,6 +336,7 @@ public final class SmartCompanyPriceMatcher {
         double jaccard = union.isEmpty() ? 0d : intersection / (double) union.size();
 
         double score = coverage * 0.52d + jaccard * 0.22d;
+        score += familyMatch.bonus;
 
         String appCorePhrase = joinTokens(appTokens);
         String companyCorePhrase = joinTokens(companyTokens);
@@ -280,7 +354,8 @@ public final class SmartCompanyPriceMatcher {
 
         if (packCompatibility == PackCompatibility.MATCH) {
             score += 0.12d;
-        } else if (packCompatibility == PackCompatibility.MISMATCH) {
+        } else if (packCompatibility == PackCompatibility.MISMATCH
+                && !familyMatch.ignorePackMismatch) {
             score -= 0.28d;
         }
 
@@ -420,12 +495,45 @@ public final class SmartCompanyPriceMatcher {
                 .replace("nite works", "niteworks")
                 .replace("afresh energy drink mix", "afresh")
                 .replace("herbal aloe concentrate", "aloe concentrate")
-                .replace("vritilife", "vritilife");
+                .replace("activated fibre", "activated fiber")
+                .replace("active fibre", "active fiber")
+                .replace("ocular defence", "ocular defense")
+                .replace("unflavoured", "unflavored")
+                .replace("chocolicious", "chocolate");
 
         return normalized
                 .replaceAll("[^a-z0-9]+", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
+    }
+
+    private static boolean isFormulaOne(String normalizedName) {
+        return normalizedName != null
+                && normalizedName.matches(".*\\bformula\\s+1\\b.*");
+    }
+
+    private static boolean isAfresh(String normalizedName) {
+        return normalizedName != null
+                && normalizedName.matches(".*\\bafresh\\b.*");
+    }
+
+    private static boolean isDinoshake(String normalizedName) {
+        return normalizedName != null
+                && normalizedName.replace(" ", "").contains("dinoshake");
+    }
+
+    private static boolean containsAny(String value, String... terms) {
+        if (value == null || terms == null) {
+            return false;
+        }
+
+        for (String term : terms) {
+            if (term != null && !term.isEmpty() && value.contains(term)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static String normalizeStock(String value) {
@@ -446,6 +554,30 @@ public final class SmartCompanyPriceMatcher {
         MATCH,
         MISMATCH,
         UNKNOWN
+    }
+
+    private static class FamilyMatch {
+        private final boolean rejected;
+        private final double bonus;
+        private final boolean ignorePackMismatch;
+
+        private FamilyMatch(boolean rejected, double bonus, boolean ignorePackMismatch) {
+            this.rejected = rejected;
+            this.bonus = bonus;
+            this.ignorePackMismatch = ignorePackMismatch;
+        }
+
+        private static FamilyMatch reject() {
+            return new FamilyMatch(true, 0d, false);
+        }
+
+        private static FamilyMatch normal() {
+            return new FamilyMatch(false, 0d, false);
+        }
+
+        private static FamilyMatch preferred(double bonus, boolean ignorePackMismatch) {
+            return new FamilyMatch(false, bonus, ignorePackMismatch);
+        }
     }
 
     private static class ScoredCandidate {
