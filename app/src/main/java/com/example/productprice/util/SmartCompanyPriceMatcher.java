@@ -207,6 +207,10 @@ public final class SmartCompanyPriceMatcher {
         List<ScoredCandidate> scored = new ArrayList<>();
 
         for (MergedCompanyPrice companyPrice : companyPrices) {
+            if (rejectKnownVariant(product, companyPrice)) {
+                continue;
+            }
+
             double score = scoreMatch(product, companyPrice);
             if (score > 0d) {
                 scored.add(new ScoredCandidate(companyPrice, score));
@@ -244,6 +248,31 @@ public final class SmartCompanyPriceMatcher {
         return new MatchDecision(top.companyPrice, top.score, null);
     }
 
+    private static boolean rejectKnownVariant(
+            Product appProduct,
+            MergedCompanyPrice companyPrice
+    ) {
+        String app = normalizeName(appProduct == null ? null : appProduct.getName());
+        String company = normalizeName(companyPrice == null ? null : companyPrice.productName);
+
+        if (!"afresh".equals(canonicalFamily(app))
+                || !"afresh".equals(canonicalFamily(company))) {
+            return false;
+        }
+
+        boolean appTulsi = containsAny(app, "tulsi", "basil");
+        boolean companyTulsi = containsAny(company, "tulsi", "basil");
+
+        if (appTulsi) {
+            return !companyTulsi;
+        }
+
+        // The user's generic Afresh item represents the standard merged-price
+        // flavour group. Tulsi has its own separate company price row, so it must
+        // never become the representative match for the generic Afresh item.
+        return companyTulsi;
+    }
+
     private static double scoreMatch(
             Product appProduct,
             MergedCompanyPrice companyPrice
@@ -262,8 +291,9 @@ public final class SmartCompanyPriceMatcher {
 
         String appFamily = canonicalFamily(appNormalized);
         String companyFamily = canonicalFamily(companyNormalized);
+        boolean sameFamily = !appFamily.isEmpty() && appFamily.equals(companyFamily);
 
-        if (!appFamily.isEmpty() && appFamily.equals(companyFamily)) {
+        if (sameFamily) {
             score += 0.24d;
 
             if (!containsFlavour(appNormalized)) {
@@ -281,7 +311,15 @@ public final class SmartCompanyPriceMatcher {
         if (packCompatibility == PackCompatibility.MATCH) {
             score += 0.16d;
         } else if (packCompatibility == PackCompatibility.MISMATCH) {
-            score -= 0.34d;
+            if (isGenericStandardAfresh(appNormalized, companyNormalized)) {
+                // In the official PDF the standard Afresh price columns are merged
+                // across several flavours, including the 40 gms Kashmiri Kahwa row.
+                // PDF text extraction can attach those shared values to a 50 gms
+                // representative row. Do not punish that visual-table artifact.
+                score += 0.04d;
+            } else {
+                score -= 0.34d;
+            }
         }
 
         double vp = appProduct.getVp();
@@ -305,6 +343,13 @@ public final class SmartCompanyPriceMatcher {
         }
 
         return Math.max(0d, Math.min(1d, score));
+    }
+
+    private static boolean isGenericStandardAfresh(String appNormalized, String companyNormalized) {
+        return "afresh".equals(canonicalFamily(appNormalized))
+                && "afresh".equals(canonicalFamily(companyNormalized))
+                && !containsFlavour(appNormalized)
+                && !containsAny(companyNormalized, "tulsi", "basil");
     }
 
     private static double tokenSimilarity(Set<String> left, Set<String> right) {
@@ -437,6 +482,20 @@ public final class SmartCompanyPriceMatcher {
     private static boolean containsFlavour(String normalizedName) {
         for (String token : safe(normalizedName).split("\\s+")) {
             if (FLAVOUR_WORDS.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsAny(String value, String... terms) {
+        String source = safe(value);
+        if (terms == null) {
+            return false;
+        }
+
+        for (String term : terms) {
+            if (term != null && !term.isEmpty() && source.contains(term)) {
                 return true;
             }
         }
