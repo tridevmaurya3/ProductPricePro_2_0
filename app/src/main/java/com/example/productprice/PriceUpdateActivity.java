@@ -161,7 +161,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
 
         syncNewCatalogButton = new MaterialButton(this);
         syncNewCatalogButton.setText("Review New Official Products");
-        syncNewCatalogButton.setTextAllCaps(false);
+        syncNewCatalogButton.setAllCaps(false);
         syncNewCatalogButton.setVisibility(View.GONE);
         syncNewCatalogButton.setContentDescription(
                 "Review products or categories found in the official PDFs but missing from the app"
@@ -176,7 +176,7 @@ public class PriceUpdateActivity extends AppCompatActivity {
 
         mapUnmatchedButton = new MaterialButton(this);
         mapUnmatchedButton.setText("Link Unmatched Products");
-        mapUnmatchedButton.setTextAllCaps(false);
+        mapUnmatchedButton.setAllCaps(false);
         mapUnmatchedButton.setVisibility(View.GONE);
         mapUnmatchedButton.setContentDescription(
                 "Link unmatched app products to official company products"
