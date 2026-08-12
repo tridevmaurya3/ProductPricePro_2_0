@@ -144,13 +144,21 @@ public final class MainToolsPopup {
                             Locale.getDefault()
                     ).format(new Date(latest.getImportedAt()));
 
+            String status;
+            if (latest.isUndone()) {
+                status = "Undone";
+            } else if (latest.isUndoAvailable()) {
+                status = "Undo available";
+            } else {
+                status = "Applied";
+            }
+
             detail.setText(
                     latest.getProductCount()
                             + " products • "
                             + date
-                            + (latest.isUndoAvailable()
-                            ? " • Undo available"
-                            : " • Applied")
+                            + " • "
+                            + status
             );
 
         } catch (Exception exception) {
