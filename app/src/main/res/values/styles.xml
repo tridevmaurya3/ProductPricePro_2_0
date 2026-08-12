@@ -1,17 +1,37 @@
 <resources>
     <style name="Widget.ProductPrice.Card" parent="Widget.Material3.CardView.Elevated">
-        <item name="cardCornerRadius">20dp</item>
-        <item name="cardElevation">2dp</item>
+        <item name="cardCornerRadius">16dp</item>
+        <item name="cardElevation">1dp</item>
         <item name="strokeColor">@color/outline</item>
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="TextAppearance.ProductPrice.Title" parent="TextAppearance.Material3.TitleLarge">
+    <style name="TextAppearance.ProductPrice.Title" parent="TextAppearance.Material3.TitleMedium">
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">18sp</item>
     </style>
 
-    <style name="TextAppearance.ProductPrice.Label" parent="TextAppearance.Material3.LabelMedium">
+    <style name="TextAppearance.ProductPrice.SectionTitle" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <style name="TextAppearance.ProductPrice.Label" parent="TextAppearance.Material3.LabelSmall">
         <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+    <style name="Widget.ProductPrice.CompactButton" parent="Widget.Material3.Button">
+        <item name="android:minHeight">44dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="cornerRadius">22dp</item>
+    </style>
+
+    <style name="Widget.ProductPrice.CompactOutlinedButton" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">44dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="cornerRadius">22dp</item>
     </style>
 </resources>
