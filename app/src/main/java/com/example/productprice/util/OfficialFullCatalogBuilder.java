@@ -17,9 +17,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Builds a clean, complete app catalogue directly from the two official PDF
- * price lists. No legacy app price is reused. Each official Stock No. becomes
- * one product so newly launched flavours/packs are automatically included.
+ * Builds a completely fresh app catalogue from the two official company PDFs.
+ *
+ * Source of truth:
+ * - Associate PDF: MRP/Full, @25, @35, @42, @50 and VP.
+ * - Preferred Customer PDF: @15/Bronze.
+ *
+ * The two PDFs are intentionally not forced to have identical @25/@35 values
+ * for every parsed row. PDF table extraction can attach a shared-price block to
+ * a neighbouring flavour row, and the company may also publish presentation
+ * differences. Such differences are reported as warnings, not as blockers.
+ * The app never reuses any legacy database price while building this catalog.
  */
 public final class OfficialFullCatalogBuilder {
 
@@ -56,14 +64,17 @@ public final class OfficialFullCatalogBuilder {
         }
 
         Map<String, CompanyPriceRow> preferredByStock = new HashMap<>();
+        List<CompanyPriceRow> preferredRows = new ArrayList<>();
         for (CompanyPriceRow row : preferred.getRows()) {
             if (row == null) continue;
+            preferredRows.add(row);
             String stock = normalizeStock(row.getStockNo());
             if (!stock.isEmpty()) preferredByStock.put(stock, row);
         }
 
         Map<String, Product> productsByUniqueKey = new LinkedHashMap<>();
-        int sharedConflictCount = 0;
+        int crossPdfDifferenceCount = 0;
+        int price15FallbackCount = 0;
 
         for (CompanyPriceRow associateRow : associate.getRows()) {
             if (associateRow == null) continue;
@@ -74,56 +85,63 @@ public final class OfficialFullCatalogBuilder {
                 continue;
             }
 
-            CompanyPriceRow preferredRow = preferredByStock.get(stock);
-            if (preferredRow == null) {
-                result.incrementSkippedIncompleteRows();
-                result.addWarning(
-                        "Stock " + stock
-                                + " is in Associate PDF but has no Preferred Customer row, so it was not imported because Price@15 is unavailable."
-                );
-                continue;
-            }
-
-            Integer price15 = preferredRow.getPrice15();
             Integer price25 = associateRow.getPrice25();
             Integer price35 = associateRow.getPrice35();
             Integer price42 = associateRow.getPrice42();
             Integer price50 = associateRow.getPrice50();
 
-            boolean sharedPricesMatch = price25 != null
-                    && preferredRow.getPrice25() != null
-                    && price25.equals(preferredRow.getPrice25())
-                    && price35 != null
-                    && preferredRow.getPrice35() != null
-                    && price35.equals(preferredRow.getPrice35());
-
-            if (!sharedPricesMatch) {
-                sharedConflictCount++;
-                continue;
-            }
-
             if (associateRow.getMrp() <= 0
-                    || price15 == null
                     || price25 == null
                     || price35 == null
                     || price42 == null
                     || price50 == null) {
+                // Non-nutrition/application/promotion rows do not have the six
+                // app price levels and therefore are not part of Product Manager.
                 result.incrementSkippedIncompleteRows();
                 continue;
             }
 
+            CompanyPriceRow exactPreferred = preferredByStock.get(stock);
+            Price15Resolution price15Resolution = resolvePrice15(
+                    associateRow,
+                    exactPreferred,
+                    preferredRows
+            );
+
+            if (price15Resolution.price15 == null) {
+                result.incrementSkippedIncompleteRows();
+                result.addWarning(
+                        "Stock " + stock + " (" + cleanProductName(associateRow.getProductName())
+                                + ") was not imported because a reliable Preferred Customer Bronze/@15 price could not be found."
+                );
+                continue;
+            }
+
+            if (exactPreferred != null && hasSharedPriceDifference(associateRow, exactPreferred)) {
+                crossPdfDifferenceCount++;
+            }
+            if (price15Resolution.usedFallback) {
+                price15FallbackCount++;
+            }
+
             String productName = firstNonEmpty(
                     associateRow.getProductName(),
-                    preferredRow.getProductName()
+                    price15Resolution.preferredRow == null
+                            ? ""
+                            : price15Resolution.preferredRow.getProductName()
             );
             if (productName.isEmpty()) {
                 result.incrementSkippedIncompleteRows();
                 continue;
             }
 
+            String preferredCategory = price15Resolution.preferredRow == null
+                    ? ""
+                    : price15Resolution.preferredRow.getCategory();
+
             String category = chooseCategory(
                     associateRow.getCategory(),
-                    preferredRow.getCategory(),
+                    preferredCategory,
                     categoryByStock.get(stock),
                     productName
             );
@@ -131,12 +149,9 @@ public final class OfficialFullCatalogBuilder {
             Product product = new Product();
             product.setCategory(category);
             product.setName(cleanProductName(productName));
-            product.setVp(Math.max(
-                    associateRow.getVolumePoint(),
-                    preferredRow.getVolumePoint()
-            ));
+            product.setVp(associateRow.getVolumePoint());
             product.setFullPrice(associateRow.getMrp());
-            product.setPrice15(price15);
+            product.setPrice15(price15Resolution.price15);
             product.setPrice25(price25);
             product.setPrice35(price35);
             product.setPrice42(price42);
@@ -144,6 +159,9 @@ public final class OfficialFullCatalogBuilder {
             product.setActive(true);
             product.setUpdatedAt(System.currentTimeMillis());
 
+            // Product names are unique in the current DB schema. If a future
+            // company PDF repeats a display name for different Stock Nos., keep
+            // both by appending Stock No. only to the duplicate display name.
             String uniqueKey = normalizeName(product.getName());
             if (uniqueKey.isEmpty()) uniqueKey = "stock-" + stock;
 
@@ -151,16 +169,23 @@ public final class OfficialFullCatalogBuilder {
             if (existing == null) {
                 productsByUniqueKey.put(uniqueKey, product);
             } else if (!samePrices(existing, product)) {
-                // Keep both official rows if names collide but prices differ.
                 product.setName(product.getName() + " [" + stock + "]");
                 productsByUniqueKey.put(uniqueKey + "-" + stock, product);
             }
         }
 
-        if (sharedConflictCount > 0) {
-            result.addError(
-                    sharedConflictCount
-                            + " product(s) have different @25/@35 values between the two PDFs. Catalog replacement is blocked."
+        if (crossPdfDifferenceCount > 0) {
+            result.addWarning(
+                    crossPdfDifferenceCount
+                            + " row(s) showed different @25/@35 values between the parsed PDFs. "
+                            + "They no longer block import: Associate PDF is used for @25/@35, while Preferred Customer PDF is used only for Bronze/@15."
+            );
+        }
+
+        if (price15FallbackCount > 0) {
+            result.addWarning(
+                    price15FallbackCount
+                            + " product(s) used smart Bronze/@15 group matching because the Preferred Customer PDF shares price blocks across flavour rows."
             );
         }
 
@@ -185,6 +210,163 @@ public final class OfficialFullCatalogBuilder {
         }
 
         return result;
+    }
+
+    /**
+     * Preferred PDF contributes only Bronze/@15. Exact Stock No. is preferred.
+     * If PDF extraction attached that stock to a neighbouring shared group, we
+     * recover the correct Bronze value using the company price signature:
+     * MRP + Associate @25 + Associate @35 (+ VP when available).
+     */
+    private static Price15Resolution resolvePrice15(
+            CompanyPriceRow associateRow,
+            CompanyPriceRow exactPreferred,
+            List<CompanyPriceRow> preferredRows
+    ) {
+        if (associateRow == null) return new Price15Resolution(null, null, false);
+
+        // Strong exact match: same stock + same MRP. Even if Silver/Gold differ,
+        // Bronze belongs to this exact official stock and remains usable.
+        if (exactPreferred != null
+                && exactPreferred.getPrice15() != null
+                && exactPreferred.getMrp() == associateRow.getMrp()) {
+            return new Price15Resolution(
+                    exactPreferred.getPrice15(),
+                    exactPreferred,
+                    false
+            );
+        }
+
+        CompanyPriceRow best = null;
+        int bestScore = Integer.MIN_VALUE;
+
+        for (CompanyPriceRow preferredRow : preferredRows) {
+            if (preferredRow == null || preferredRow.getPrice15() == null) continue;
+            if (preferredRow.getMrp() != associateRow.getMrp()) continue;
+
+            int score = 10;
+
+            if (samePrice(associateRow.getPrice25(), preferredRow.getPrice25())) {
+                score += 8;
+            }
+            if (samePrice(associateRow.getPrice35(), preferredRow.getPrice35())) {
+                score += 8;
+            }
+
+            double vpDifference = Math.abs(
+                    associateRow.getVolumePoint() - preferredRow.getVolumePoint()
+            );
+            if (associateRow.getVolumePoint() > 0d
+                    && preferredRow.getVolumePoint() > 0d
+                    && vpDifference < 0.011d) {
+                score += 5;
+            }
+
+            if (sameFamilyAndPack(
+                    associateRow.getProductName(),
+                    preferredRow.getProductName()
+            )) {
+                score += 6;
+            }
+
+            if (score > bestScore) {
+                bestScore = score;
+                best = preferredRow;
+            }
+        }
+
+        // MRP match is mandatory for fallback. A score of 18 normally means
+        // MRP + either @25 or @35 matched; 24+ means a strong price group match.
+        if (best != null && bestScore >= 18) {
+            return new Price15Resolution(best.getPrice15(), best, true);
+        }
+
+        // Last safe exact-stock fallback: accept Bronze if Stock No. is exact
+        // and the row exists, even when PDF text extraction lost its MRP field.
+        if (exactPreferred != null && exactPreferred.getPrice15() != null) {
+            return new Price15Resolution(
+                    exactPreferred.getPrice15(),
+                    exactPreferred,
+                    true
+            );
+        }
+
+        return new Price15Resolution(null, null, false);
+    }
+
+    private static boolean hasSharedPriceDifference(
+            CompanyPriceRow associateRow,
+            CompanyPriceRow preferredRow
+    ) {
+        if (associateRow == null || preferredRow == null) return false;
+
+        boolean price25Comparable = associateRow.getPrice25() != null
+                && preferredRow.getPrice25() != null;
+        boolean price35Comparable = associateRow.getPrice35() != null
+                && preferredRow.getPrice35() != null;
+
+        return (price25Comparable
+                && !associateRow.getPrice25().equals(preferredRow.getPrice25()))
+                || (price35Comparable
+                && !associateRow.getPrice35().equals(preferredRow.getPrice35()));
+    }
+
+    private static boolean samePrice(Integer first, Integer second) {
+        return first != null && second != null && first.equals(second);
+    }
+
+    private static boolean sameFamilyAndPack(String first, String second) {
+        String firstName = normalizeName(first);
+        String secondName = normalizeName(second);
+        if (firstName.isEmpty() || secondName.isEmpty()) return false;
+
+        String firstFamily = familyKey(firstName);
+        String secondFamily = familyKey(secondName);
+        if (!firstFamily.equals(secondFamily)) return false;
+
+        String firstPack = packKey(firstName);
+        String secondPack = packKey(secondName);
+        return firstPack.isEmpty()
+                || secondPack.isEmpty()
+                || firstPack.equals(secondPack);
+    }
+
+    private static String familyKey(String normalizedName) {
+        String value = normalizedName;
+        if (value.contains("formula 1")) return "formula 1";
+        if (value.contains("protein powder")) return "protein powder";
+        if (value.contains("afresh")) return "afresh";
+        if (value.contains("dinoshake")) return "dinoshake";
+        if (value.contains("liftoff")) return "liftoff";
+        if (value.contains("shakemate") || value.contains("shake mate")) return "shakemate";
+
+        return value
+                .replaceAll(
+                        "\\b(vanilla|chocolate|chocolicious|mango|orange|cream|strawberry|kulfi|banana|caramel|rose|kheer|paan|dates|ginger|elaichi|lemon|peach|cinnamon|kashmiri|kahwa|tulsi|basil|watermelon|unflavoured|unflavored|original)\\b",
+                        " "
+                )
+                .replaceAll("\\b\\d+(?:\\.\\d+)?\\s*(?:kg|g|ml|tab|tablet|tablets|caps|capsule|capsules|sachet|sachets|softgel|softgels)\\b", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
+    }
+
+    private static String packKey(String normalizedName) {
+        Matcher matcher = Pattern.compile(
+                "\\b(\\d+(?:\\.\\d+)?)\\s*(kg|g|ml|tab|tablet|tablets|caps|capsule|capsules|sachet|sachets|softgel|softgels)\\b",
+                Pattern.CASE_INSENSITIVE
+        ).matcher(normalizedName);
+
+        if (!matcher.find()) return "";
+        return matcher.group(1) + normalizeUnit(matcher.group(2));
+    }
+
+    private static String normalizeUnit(String unit) {
+        String value = unit == null ? "" : unit.toLowerCase(Locale.US);
+        if (value.equals("tablet") || value.equals("tablets")) return "tab";
+        if (value.equals("capsule") || value.equals("capsules")) return "caps";
+        if (value.equals("sachets")) return "sachet";
+        if (value.equals("softgels")) return "softgel";
+        return value;
     }
 
     private static Map<String, String> extractCategoryByStock(String rawText) {
@@ -242,7 +424,6 @@ public final class OfficialFullCatalogBuilder {
         }
         if (upper.equals("SLEEP SUPPORT")) return "SLEEP SUPPORT";
 
-        // Future company categories: keep a clean all-uppercase section heading.
         if (looksLikeGenericCategoryHeading(upper)) {
             return upper
                     .replaceFirst("\\s+PRODUCTS$", "")
@@ -368,6 +549,9 @@ public final class OfficialFullCatalogBuilder {
                 .replace("personalised", "personalized")
                 .replace("fibre", "fiber")
                 .replace("defence", "defense")
+                .replace("formula-1", "formula 1")
+                .replace("formula1", "formula 1")
+                .replace("dino shake", "dinoshake")
                 .replaceAll("[^a-z0-9]+", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
@@ -395,5 +579,21 @@ public final class OfficialFullCatalogBuilder {
 
     private static String cleanSpaces(String value) {
         return value == null ? "" : value.trim().replaceAll("\\s+", " ");
+    }
+
+    private static class Price15Resolution {
+        private final Integer price15;
+        private final CompanyPriceRow preferredRow;
+        private final boolean usedFallback;
+
+        private Price15Resolution(
+                Integer price15,
+                CompanyPriceRow preferredRow,
+                boolean usedFallback
+        ) {
+            this.price15 = price15;
+            this.preferredRow = preferredRow;
+            this.usedFallback = usedFallback;
+        }
     }
 }
