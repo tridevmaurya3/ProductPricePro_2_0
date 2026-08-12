@@ -2,6 +2,7 @@ package com.example.productprice;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.Menu;
@@ -19,6 +20,7 @@ public class ProductPriceApplication extends Application
         implements Application.ActivityLifecycleCallbacks {
 
     private static final int MENU_PROFILE = 91001;
+    private static ProductPriceApplication instance;
 
     private AppLockManager appLockManager;
     private int startedActivities = 0;
@@ -27,8 +29,15 @@ public class ProductPriceApplication extends Application
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         appLockManager = new AppLockManager(this);
         registerActivityLifecycleCallbacks(this);
+    }
+
+    public static Context getAppContext() {
+        return instance == null
+                ? null
+                : instance.getApplicationContext();
     }
 
     public AppLockManager getAppLockManager() {
