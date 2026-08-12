@@ -4,6 +4,7 @@ public class CompanyPriceRow {
 
     private String stockNo;
     private String productName;
+    private String category;
     private double volumePoint;
 
     private int mrp;
@@ -21,6 +22,7 @@ public class CompanyPriceRow {
     public CompanyPriceRow() {
         stockNo = "";
         productName = "";
+        category = "";
         rawLine = "";
     }
 
@@ -38,6 +40,14 @@ public class CompanyPriceRow {
 
     public void setProductName(String productName) {
         this.productName = productName == null ? "" : productName.trim();
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category == null ? "" : category.trim();
     }
 
     public double getVolumePoint() {
