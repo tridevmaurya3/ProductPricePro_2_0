@@ -2,6 +2,7 @@ package com.example.productprice.util;
 
 import com.example.productprice.model.CompanyPriceDocument;
 import com.example.productprice.model.CompanyPriceRow;
+import com.example.productprice.model.CompanyProductMapping;
 import com.example.productprice.model.OfficialPriceUpdate;
 import com.example.productprice.model.Product;
 import com.example.productprice.model.SmartPriceImportPlan;
@@ -23,14 +24,14 @@ import java.util.regex.Pattern;
  * Maps the user's intentionally simplified catalogue to official company PDFs.
  *
  * Multiple flavour Stock Nos. that represent the same logical product and have
- * the same price set are collapsed before matching. Example: Formula 1 500 gms
- * flavours become one logical company price group. Category is used as an
- * additional confidence signal, not as a hard requirement.
+ * the same price set are collapsed before matching. Category, product family,
+ * pack size, VP and remembered one-time mappings are used together.
  */
 public final class SmartCompanyPriceMatcher {
 
     private static final double SAFE_MATCH_THRESHOLD = 0.58d;
     private static final double AMBIGUITY_WINDOW = 0.07d;
+    private static final double REMEMBERED_ALIAS_THRESHOLD = 0.70d;
 
     private static final Pattern PACK_PATTERN = Pattern.compile(
             "(?i)(\\d+(?:\\.\\d+)?)\\s*(kg|gms|gm|grams|gram|g|ml|ltr|litre|litres|tablet|tablets|tab|tabs|capsule|capsules|caps|sachet|sachets|softgel|softgels)\\b"
@@ -61,6 +62,22 @@ public final class SmartCompanyPriceMatcher {
             CompanyPriceDocument preferredDocument,
             String effectiveDate
     ) {
+        return buildPlan(
+                appProducts,
+                associateDocument,
+                preferredDocument,
+                effectiveDate,
+                Collections.emptyMap()
+        );
+    }
+
+    public static SmartPriceImportPlan buildPlan(
+            List<Product> appProducts,
+            CompanyPriceDocument associateDocument,
+            CompanyPriceDocument preferredDocument,
+            String effectiveDate,
+            Map<String, CompanyProductMapping> rememberedMappings
+    ) {
         SmartPriceImportPlan plan = new SmartPriceImportPlan(effectiveDate);
 
         if (associateDocument == null || preferredDocument == null) {
@@ -86,6 +103,10 @@ public final class SmartCompanyPriceMatcher {
             return plan;
         }
 
+        Map<String, CompanyProductMapping> mappings = rememberedMappings == null
+                ? Collections.emptyMap()
+                : rememberedMappings;
+
         for (Product product : appProducts) {
             if (product == null
                     || product.getId() <= 0
@@ -93,7 +114,19 @@ public final class SmartCompanyPriceMatcher {
                 continue;
             }
 
-            MatchDecision decision = findBestMatch(product, companyPrices);
+            CompanyProductMapping remembered = mappings.get(
+                    CompanyProductMapping.keyFor(product)
+            );
+
+            MatchDecision decision = resolveRememberedMapping(
+                    product,
+                    remembered,
+                    companyPrices
+            );
+
+            if (decision == null) {
+                decision = findBestMatch(product, companyPrices);
+            }
 
             if (decision.conflictMessage != null) {
                 plan.addConflict(decision.conflictMessage);
@@ -131,6 +164,74 @@ public final class SmartCompanyPriceMatcher {
         }
 
         return plan;
+    }
+
+    /**
+     * Returns grouped official products ordered from the most likely candidate
+     * to the least likely candidate. This is used only when the user wants to
+     * manually link an unmatched app product once.
+     */
+    public static List<MappingCandidate> getMappingCandidates(
+            Product appProduct,
+            CompanyPriceDocument associateDocument,
+            CompanyPriceDocument preferredDocument
+    ) {
+        List<MappingCandidate> result = new ArrayList<>();
+
+        if (appProduct == null
+                || associateDocument == null
+                || preferredDocument == null) {
+            return result;
+        }
+
+        SmartPriceImportPlan scratchPlan = new SmartPriceImportPlan("");
+        List<MergedCompanyPrice> prices = collapseEquivalentVariants(
+                mergeOfficialRows(
+                        associateDocument,
+                        preferredDocument,
+                        scratchPlan
+                )
+        );
+
+        List<ScoredCandidate> scored = new ArrayList<>();
+        for (MergedCompanyPrice price : prices) {
+            if (price == null) {
+                continue;
+            }
+
+            double score = scoreMatch(appProduct, price);
+            scored.add(new ScoredCandidate(price, score));
+        }
+
+        Collections.sort(
+                scored,
+                (left, right) -> Double.compare(right.score, left.score)
+        );
+
+        int limit = Math.min(35, scored.size());
+        for (int index = 0; index < limit; index++) {
+            ScoredCandidate candidate = scored.get(index);
+            MergedCompanyPrice price = candidate.companyPrice;
+
+            result.add(
+                    new MappingCandidate(
+                            memoryGroupKey(price),
+                            price.stockNo,
+                            price.productName,
+                            price.category,
+                            price.fullPrice,
+                            price.price15,
+                            price.price25,
+                            price.price35,
+                            price.price42,
+                            price.price50,
+                            price.variantCount,
+                            candidate.score
+                    )
+            );
+        }
+
+        return result;
     }
 
     private static List<MergedCompanyPrice> mergeOfficialRows(
@@ -239,15 +340,7 @@ public final class SmartCompanyPriceMatcher {
                 continue;
             }
 
-            String family = canonicalFamily(normalizeName(row.productName));
-            String pack = packSignature(row.productName);
-            String category = normalizeCategory(row.category);
-
-            String key = category
-                    + "|"
-                    + family
-                    + "|"
-                    + pack
+            String key = memoryGroupKey(row)
                     + "|"
                     + row.priceSignature();
 
@@ -261,6 +354,107 @@ public final class SmartCompanyPriceMatcher {
         }
 
         return new ArrayList<>(grouped.values());
+    }
+
+    private static MatchDecision resolveRememberedMapping(
+            Product product,
+            CompanyProductMapping mapping,
+            List<MergedCompanyPrice> companyPrices
+    ) {
+        if (mapping == null || companyPrices == null || companyPrices.isEmpty()) {
+            return null;
+        }
+
+        String rememberedGroup = safe(mapping.getCompanyGroupKey());
+        String rememberedStock = normalizeStock(mapping.getStockNo());
+
+        for (MergedCompanyPrice price : companyPrices) {
+            if (!rememberedGroup.isEmpty()
+                    && rememberedGroup.equals(memoryGroupKey(price))) {
+                return new MatchDecision(price, 1.0d, null);
+            }
+        }
+
+        if (!rememberedStock.isEmpty()) {
+            for (MergedCompanyPrice price : companyPrices) {
+                if (rememberedStock.equals(normalizeStock(price.stockNo))) {
+                    return new MatchDecision(price, 0.99d, null);
+                }
+            }
+        }
+
+        String rememberedName = normalizeName(mapping.getCompanyProductName());
+        if (rememberedName.isEmpty()) {
+            return null;
+        }
+
+        MergedCompanyPrice best = null;
+        double bestScore = 0d;
+
+        for (MergedCompanyPrice price : companyPrices) {
+            double score = scoreRememberedAlias(mapping, rememberedName, price);
+            if (score > bestScore) {
+                best = price;
+                bestScore = score;
+            }
+        }
+
+        if (best != null && bestScore >= REMEMBERED_ALIAS_THRESHOLD) {
+            return new MatchDecision(best, Math.max(0.90d, bestScore), null);
+        }
+
+        // A stale mapping must never force a wrong update. Fall back to the
+        // normal matcher, which may still find the current official product.
+        return null;
+    }
+
+    private static double scoreRememberedAlias(
+            CompanyProductMapping mapping,
+            String rememberedName,
+            MergedCompanyPrice price
+    ) {
+        String candidateName = normalizeName(price.productName);
+        double score = 0d;
+
+        if (rememberedName.equals(candidateName)) {
+            score += 0.62d;
+        }
+
+        String rememberedFamily = canonicalFamily(rememberedName);
+        String candidateFamily = canonicalFamily(candidateName);
+        if (!rememberedFamily.isEmpty() && rememberedFamily.equals(candidateFamily)) {
+            score += 0.40d;
+        }
+
+        PackCompatibility pack = comparePackSizes(
+                mapping.getCompanyProductName(),
+                price.productName
+        );
+        if (pack == PackCompatibility.MATCH) {
+            score += 0.22d;
+        } else if (pack == PackCompatibility.MISMATCH) {
+            score -= 0.24d;
+        }
+
+        if (variantBucket(rememberedName).equals(variantBucket(candidateName))) {
+            score += 0.16d;
+        } else {
+            score -= 0.18d;
+        }
+
+        String rememberedCategory = normalizeCategory(mapping.getAppCategory());
+        String candidateCategory = normalizeCategory(price.category);
+        if (!rememberedCategory.isEmpty()
+                && rememberedCategory.equals(candidateCategory)) {
+            score += 0.08d;
+        }
+
+        score += tokenSimilarity(
+                coreTokens(rememberedName, true),
+                coreTokens(candidateName, true)
+        ) * 0.20d;
+
+        return Math.max(0d, Math.min(1d, score));
     }
 
     private static MatchDecision findBestMatch(
@@ -429,6 +623,33 @@ public final class SmartCompanyPriceMatcher {
                 && "afresh".equals(canonicalFamily(companyNormalized))
                 && !containsFlavour(appNormalized)
                 && !containsAny(companyNormalized, "tulsi", "basil");
+    }
+
+    private static String memoryGroupKey(MergedCompanyPrice row) {
+        if (row == null) {
+            return "";
+        }
+
+        String normalizedName = normalizeName(row.productName);
+        return normalizeCategory(row.category)
+                + "|"
+                + canonicalFamily(normalizedName)
+                + "|"
+                + packSignature(row.productName)
+                + "|"
+                + variantBucket(normalizedName);
+    }
+
+    private static String variantBucket(String normalizedName) {
+        String value = safe(normalizedName);
+
+        if ("afresh".equals(canonicalFamily(value))) {
+            return containsAny(value, "tulsi", "basil")
+                    ? "tulsi"
+                    : "standard";
+        }
+
+        return "standard";
     }
 
     private static double tokenSimilarity(Set<String> left, Set<String> right) {
@@ -795,6 +1016,97 @@ public final class SmartCompanyPriceMatcher {
                     && price35 == other.price35
                     && price42 == other.price42
                     && price50 == other.price50;
+        }
+    }
+
+    public static class MappingCandidate {
+        private final String companyGroupKey;
+        private final String stockNo;
+        private final String companyProductName;
+        private final String category;
+        private final int fullPrice;
+        private final int price15;
+        private final int price25;
+        private final int price35;
+        private final int price42;
+        private final int price50;
+        private final int variantCount;
+        private final double confidence;
+
+        private MappingCandidate(
+                String companyGroupKey,
+                String stockNo,
+                String companyProductName,
+                String category,
+                int fullPrice,
+                int price15,
+                int price25,
+                int price35,
+                int price42,
+                int price50,
+                int variantCount,
+                double confidence
+        ) {
+            this.companyGroupKey = safe(companyGroupKey);
+            this.stockNo = safe(stockNo);
+            this.companyProductName = safe(companyProductName);
+            this.category = safe(category);
+            this.fullPrice = fullPrice;
+            this.price15 = price15;
+            this.price25 = price25;
+            this.price35 = price35;
+            this.price42 = price42;
+            this.price50 = price50;
+            this.variantCount = Math.max(1, variantCount);
+            this.confidence = Math.max(0d, Math.min(1d, confidence));
+        }
+
+        public String getCompanyGroupKey() {
+            return companyGroupKey;
+        }
+
+        public String getStockNo() {
+            return stockNo;
+        }
+
+        public String getCompanyProductName() {
+            return companyProductName;
+        }
+
+        public String getCategory() {
+            return category;
+        }
+
+        public int getFullPrice() {
+            return fullPrice;
+        }
+
+        public int getPrice15() {
+            return price15;
+        }
+
+        public int getPrice25() {
+            return price25;
+        }
+
+        public int getPrice35() {
+            return price35;
+        }
+
+        public int getPrice42() {
+            return price42;
+        }
+
+        public int getPrice50() {
+            return price50;
+        }
+
+        public int getVariantCount() {
+            return variantCount;
+        }
+
+        public double getConfidence() {
+            return confidence;
         }
     }
 }
