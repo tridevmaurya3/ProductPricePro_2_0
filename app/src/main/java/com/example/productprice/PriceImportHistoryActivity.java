@@ -74,35 +74,49 @@ public class PriceImportHistoryActivity extends AppCompatActivity {
         emptyLayout.setVisibility(View.GONE);
         historyContainer.setVisibility(View.VISIBLE);
 
-        PriceImportHistoryEntry latest = history.get(0);
-        summaryText.setText(
-                history.size()
-                        + " official import"
-                        + (history.size() == 1 ? "" : "s")
-                        + " • latest "
-                        + latest.getEffectiveDateLabel()
-                        + " • "
-                        + latest.getProductCount()
-                        + " products"
-        );
+        int undoneCount = 0;
+        for (PriceImportHistoryEntry entry : history) {
+            if (entry != null && entry.isUndone()) {
+                undoneCount++;
+            }
+        }
 
-        for (int index = 0; index < history.size(); index++) {
-            historyContainer.addView(
-                    createHistoryCard(history.get(index), index + 1)
-            );
+        PriceImportHistoryEntry latest = history.get(0);
+        String summary = history.size()
+                + " official import"
+                + (history.size() == 1 ? "" : "s")
+                + " • latest "
+                + latest.getEffectiveDateLabel()
+                + " • "
+                + latest.getProductCount()
+                + " products";
+
+        if (undoneCount > 0) {
+            summary += " • " + undoneCount + " undone";
+        }
+
+        summaryText.setText(summary);
+
+        for (PriceImportHistoryEntry entry : history) {
+            historyContainer.addView(createHistoryCard(entry));
         }
     }
 
-    private View createHistoryCard(
-            PriceImportHistoryEntry entry,
-            int position
-    ) {
+    private View createHistoryCard(PriceImportHistoryEntry entry) {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(dp(16));
         card.setCardElevation(0f);
         card.setStrokeWidth(dp(1));
-        card.setStrokeColor(Color.parseColor("#D8E5DB"));
-        card.setCardBackgroundColor(Color.parseColor("#FFFFFF"));
+        card.setStrokeColor(
+                Color.parseColor(
+                        entry.isUndone() ? "#E7D3CF" : "#D8E5DB"
+                )
+        );
+        card.setCardBackgroundColor(
+                Color.parseColor(
+                        entry.isUndone() ? "#FFF9F7" : "#FFFFFF"
+                )
+        );
 
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -118,7 +132,7 @@ public class PriceImportHistoryActivity extends AppCompatActivity {
         TextView title = textView(
                 entry.getEffectiveDateLabel(),
                 15,
-                "#173B24",
+                entry.isUndone() ? "#7A3F33" : "#173B24",
                 true
         );
         body.addView(title);
@@ -161,19 +175,40 @@ public class PriceImportHistoryActivity extends AppCompatActivity {
         );
         metrics.addView(products);
 
+        String statusLabel;
+        String statusColor;
+
+        if (entry.isUndone()) {
+            statusLabel = "Undone";
+            statusColor = "#A04432";
+        } else if (entry.isUndoAvailable()) {
+            statusLabel = "Undo available";
+            statusColor = "#8A5A00";
+        } else {
+            statusLabel = "Applied";
+            statusColor = "#177A3A";
+        }
+
         TextView status = textView(
-                entry.isUndoAvailable() ? "Undo available" : "Applied",
+                statusLabel,
                 11,
-                entry.isUndoAvailable() ? "#8A5A00" : "#177A3A",
+                statusColor,
                 true
         );
         metrics.addView(status);
         body.addView(metrics);
 
+        String noteText;
+        if (entry.isUndone()) {
+            noteText = "This official PDF import was later undone and the previous product prices were restored.";
+        } else if (entry.isUndoAvailable()) {
+            noteText = "This is the latest bulk price operation. Restore it from Price Update → Undo Latest Bulk Update.";
+        } else {
+            noteText = "This official price import remains in the audit timeline. A newer bulk operation exists after it.";
+        }
+
         TextView note = textView(
-                entry.isUndoAvailable()
-                        ? "This is the latest bulk price operation. It can be restored from Price Update → Undo Latest Bulk Update."
-                        : "Older official import snapshot. Newer bulk operations exist after this update.",
+                noteText,
                 10,
                 "#748078",
                 false
@@ -201,7 +236,10 @@ public class PriceImportHistoryActivity extends AppCompatActivity {
         view.setTextSize(textSizeSp);
         view.setTextColor(Color.parseColor(color));
         if (bold) {
-            view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);
+            view.setTypeface(
+                    view.getTypeface(),
+                    android.graphics.Typeface.BOLD
+            );
         }
         return view;
     }
