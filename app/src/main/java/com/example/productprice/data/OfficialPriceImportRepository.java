@@ -1,9 +1,11 @@
 package com.example.productprice.data;
 
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
+import com.example.productprice.ProductPriceApplication;
 import com.example.productprice.model.OfficialPriceUpdate;
 
 import java.util.List;
@@ -89,7 +91,43 @@ public class OfficialPriceImportRepository {
             db.endTransaction();
         }
 
+        if (updatedCount > 0) {
+            saveAuditRecord(
+                    operationId,
+                    effectiveDate,
+                    action,
+                    now,
+                    updatedCount
+            );
+        }
+
         return updatedCount;
+    }
+
+    private void saveAuditRecord(
+            String operationId,
+            String effectiveDate,
+            String action,
+            long importedAt,
+            int productCount
+    ) {
+        try {
+            Context context = ProductPriceApplication.getAppContext();
+            if (context == null) {
+                return;
+            }
+
+            new PriceImportAuditStore(context).save(
+                    operationId,
+                    effectiveDate,
+                    action,
+                    importedAt,
+                    productCount
+            );
+        } catch (Exception ignored) {
+            // The database update is authoritative. Audit logging must never
+            // make a successful official price import fail.
+        }
     }
 
     private CurrentPrices readCurrentPrices(
