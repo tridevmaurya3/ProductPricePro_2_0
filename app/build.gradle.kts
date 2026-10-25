@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.productprice"
         minSdk = 23
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -26,13 +26,22 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { test ->
+            providers.gradleProperty("officialFixtureDir").orNull?.let { dir -> test.systemProperty("official.fixture.dir", dir) }
+        }
+    }
+
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.activity)
@@ -46,6 +55,8 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.12.2")
+    testImplementation("org.apache.pdfbox:pdfbox:2.0.27")
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
 }

@@ -13,7 +13,7 @@
         android:background="@color/primary"
         app:navigationIcon="@drawable/ic_arrow_back"
         app:navigationIconTint="@color/white"
-        app:subtitle="Replace old catalogue from official PDFs"
+        app:subtitle="Automatic products, categories and exact prices"
         app:subtitleTextColor="#E7F5EC"
         app:title="Official PDF Catalog"
         app:titleTextColor="@color/white" />
@@ -51,7 +51,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Fresh Official Catalog Import"
+                        android:text="Smart Official Catalog Import"
                         android:textColor="#173B24"
                         android:textSize="15sp"
                         android:textStyle="bold" />
@@ -60,7 +60,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="3dp"
-                        android:text="Select Associate + Preferred Customer PDFs together. The app will ignore old product prices, build a fresh category-wise catalog, detect new products/packs, and show a final review before replacement."
+                        android:text="Select Associate + Preferred Customer PDFs together. Every detected Stock No. is checked across both files. New products, flavours, packs and categories are added automatically after review."
                         android:textColor="#53635A"
                         android:textSize="10sp" />
 
@@ -243,7 +243,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="42dp"
                         android:layout_marginTop="10dp"
-                        android:text="Review &amp; Replace Entire Catalog"
+                        android:text="Review &amp; Sync Complete Catalog"
                         android:textSize="11sp"
                         android:visibility="gone" />
 
@@ -279,7 +279,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="Final Apply removes the current Products + Categories catalog and replaces it atomically with the validated PDF catalog. Customers, quotations, profile and app-lock settings remain untouched."
+                        android:text="Final Apply automatically adds new products and categories, updates official prices and VP, and archives missing official items. Custom products are preserved. A complete snapshot supports Restore. Customers and saved quotations remain untouched."
                         android:textColor="#725F58"
                         android:textSize="9sp" />
 

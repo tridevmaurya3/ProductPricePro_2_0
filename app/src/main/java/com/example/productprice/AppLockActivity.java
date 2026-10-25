@@ -204,6 +204,8 @@ public class AppLockActivity extends AppCompatActivity {
         overridePendingTransition(0, 0);
     }
 
+    // Back backgrounds the locked task; finishing this activity would reveal protected screens.
+    @android.annotation.SuppressLint("MissingSuperCall")
     @Override
     public void onBackPressed() {
         moveTaskToBack(true);
