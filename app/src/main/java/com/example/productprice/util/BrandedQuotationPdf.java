@@ -211,7 +211,11 @@ public final class BrandedQuotationPdf {
     y += 10;
     rect(LEFT, y, RIGHT, y + 25, green);
     String[] heads = {"#", "PRODUCT / PACK", "QTY", "VP", "UNIT PRICE", "AMOUNT"};
-    for (int i = 0; i < heads.length; i++) text(heads[i], X[i] + 6, y + 16, 8, Color.WHITE, true);
+    // Headings use the same column anchors as their values on every page.
+    text(heads[0], X[0] + 7, y + 16, 8, Color.WHITE, true);
+    text(heads[1], X[1] + 8, y + 16, 8, Color.WHITE, true);
+    for (int i = 2; i < heads.length; i++)
+      right(heads[i], X[i + 1] - 8, y + 16, 8, Color.WHITE, true);
     y += 25;
   }
 
@@ -232,9 +236,13 @@ public final class BrandedQuotationPdf {
   }
 
   private void right(String s, float x, float baseline, float size, int color) {
+    right(s, x, baseline, size, color, false);
+  }
+
+  private void right(String s, float x, float baseline, float size, int color, boolean bold) {
     p.setTextSize(size);
-    p.setTypeface(Typeface.SANS_SERIF);
-    text(s, x - p.measureText(s), baseline, size, color, false);
+    p.setTypeface(bold ? Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) : Typeface.SANS_SERIF);
+    text(s, x - p.measureText(s), baseline, size, color, bold);
   }
 
   private void rect(float l, float t, float r, float b, int color) {
