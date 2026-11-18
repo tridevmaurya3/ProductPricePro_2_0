@@ -29,7 +29,6 @@ public final class BrandedQuotationPdf {
       muted = Color.rgb(91, 112, 103),
       light = Color.rgb(240, 247, 243);
   private String brand = "Health Care Wellness Club",
-      contact = "",
       person = "Self",
       address = "",
       reference,
@@ -77,7 +76,6 @@ public final class BrandedQuotationPdf {
     if (ProductPriceApplication.getAppContext() != null) {
       AppProfileStore profile = new AppProfileStore(ProductPriceApplication.getAppContext());
       if (!profile.getOrganization().isEmpty()) brand = profile.getOrganization();
-      contact = join(profile.getPhone(), profile.getEmail());
       if (ProductPriceApplication.getAppContext()
           .getSharedPreferences("quotation_design", 0)
           .getBoolean("mono", false)) {
@@ -185,11 +183,6 @@ public final class BrandedQuotationPdf {
     for (String s : brandLines) {
       text(s, 90, by, 18, green, true);
       by += 21;
-    }
-    List<String> contacts = wrap(contact, RIGHT - 94, 8.5f);
-    for (String s : contacts) {
-      text(s, 90, by, 8.5f, muted, false);
-      by += 12;
     }
     y = Math.max(94, by + 12);
     text("PRODUCT QUOTATION", LEFT, y, 10, muted, true);
